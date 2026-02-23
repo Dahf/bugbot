@@ -32,7 +32,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans:** 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md -- Project foundation: config, database schema, bug model, utility functions
+- [x] 01-01-PLAN.md -- Project foundation: config, database schema, bug model, utility functions
 - [ ] 01-02-PLAN.md -- Webhook ingestion, Discord embeds/threads/buttons, dismiss handler, persistent interactions
 
 ### Phase 2: AI Analysis
@@ -90,7 +90,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation and Ingestion | 0/2 | Planning complete | - |
+| 1. Foundation and Ingestion | 1/2 | In Progress | - |
 | 2. AI Analysis | 0/2 | Not started | - |
 | 3. GitHub Integration | 0/3 | Not started | - |
 | 4. Intelligence and Dashboard | 0/2 | Not started | - |

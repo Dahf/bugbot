@@ -13,10 +13,10 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **FOUND-02**: Bot displays bug reports as rich Discord embeds (description, user, device, time, console logs)
 - [ ] **FOUND-03**: Bot auto-creates a Discord thread for each bug report for dev discussion
 - [ ] **FOUND-04**: Bot presents action buttons on each report (Analyze, Create Issue, Draft Fix, Dismiss)
-- [ ] **FOUND-05**: Bot persists all bug data and state in SQLite (survives restarts)
+- [x] **FOUND-05**: Bot persists all bug data and state in SQLite (survives restarts)
 - [ ] **FOUND-06**: Button interactions remain functional after bot restarts (persistent views)
-- [ ] **FOUND-07**: Each bug has a tracked status (received → analyzing → triaged → issue_created → fix_drafted → resolved)
-- [ ] **FOUND-08**: Bot handles webhook delivery failures gracefully (store-then-process pattern)
+- [x] **FOUND-07**: Each bug has a tracked status (received → analyzing → triaged → issue_created → fix_drafted → resolved)
+- [x] **FOUND-08**: Bot handles webhook delivery failures gracefully (store-then-process pattern)
 
 ### AI Analysis
 
@@ -86,10 +86,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FOUND-02 | Phase 1 | Pending |
 | FOUND-03 | Phase 1 | Pending |
 | FOUND-04 | Phase 1 | Pending |
-| FOUND-05 | Phase 1 | Pending |
+| FOUND-05 | Phase 1 | Complete |
 | FOUND-06 | Phase 1 | Pending |
-| FOUND-07 | Phase 1 | Pending |
-| FOUND-08 | Phase 1 | Pending |
+| FOUND-07 | Phase 1 | Complete |
+| FOUND-08 | Phase 1 | Complete |
 | AI-01 | Phase 2 | Pending |
 | AI-02 | Phase 2 | Pending |
 | AI-03 | Phase 2 | Pending |
