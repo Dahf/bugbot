@@ -1,9 +1,13 @@
 """Embed builder helpers for summary and thread detail views."""
 
 import json
+import logging
 from datetime import datetime
+from urllib.parse import urlparse
 
 import discord
+
+logger = logging.getLogger(__name__)
 
 # -----------------------------------------------------------------------
 # Status colour and emoji mappings
@@ -212,8 +216,13 @@ def build_summary_embed(bug: dict) -> discord.Embed:
 
     # Screenshot as embed image (signed URL from Supabase)
     screenshot_url = bug.get("screenshot_url")
-    if screenshot_url and screenshot_url.startswith(("http://", "https://")):
-        embed.set_image(url=screenshot_url)
+    if screenshot_url:
+        screenshot_url = screenshot_url.strip()
+        parsed = urlparse(screenshot_url)
+        if parsed.scheme in ("http", "https") and parsed.netloc:
+            embed.set_image(url=screenshot_url)
+        else:
+            logger.warning("Skipping invalid screenshot URL for bug #%s: %r", hash_id, screenshot_url[:120])
 
     return embed
 
