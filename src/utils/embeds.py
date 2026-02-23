@@ -19,6 +19,13 @@ STATUS_COLORS: dict[str, discord.Colour] = {
     "dismissed": discord.Colour(0x95A5A6),       # Grey
 }
 
+SEVERITY_COLORS: dict[str, discord.Colour] = {
+    "critical": discord.Colour(0xED4245),  # Red
+    "high": discord.Colour(0xE67E22),       # Orange
+    "medium": discord.Colour(0xF1C40F),     # Yellow
+    "low": discord.Colour(0x2ECC71),        # Green
+}
+
 STATUS_EMOJI: dict[str, str] = {
     "received": "\U0001f534",       # Red circle
     "analyzing": "\U0001f535",      # Blue circle
@@ -191,12 +198,61 @@ def build_summary_embed(bug: dict) -> discord.Embed:
         value=_format_device_info(bug.get("device_info")),
         inline=True,
     )
+
+    # Priority badge -- only shown when the bug has been analyzed
+    priority = bug.get("priority")
+    if priority:
+        embed.add_field(
+            name="Priority",
+            value=f"**{priority}**",
+            inline=True,
+        )
+
     embed.set_footer(text=f"Bug #{hash_id}")
 
     # Screenshot as embed image (signed URL from Supabase)
     screenshot_url = bug.get("screenshot_url")
     if screenshot_url:
         embed.set_image(url=screenshot_url)
+
+    return embed
+
+
+# -----------------------------------------------------------------------
+# Analysis embed (bug thread)
+# -----------------------------------------------------------------------
+
+
+def build_analysis_embed(bug: dict, analysis: dict) -> discord.Embed:
+    """Build the AI analysis results embed posted in the bug's thread.
+
+    Colour-coded by AI-assessed severity.  Includes root cause, affected
+    area, severity, priority with reasoning, suggested fix, and a token
+    usage footer.
+    """
+    severity = analysis["severity"]
+    total_tokens = analysis["usage"]["total_tokens"]
+
+    embed = discord.Embed(
+        title=f"AI Analysis -- #{bug['hash_id']}",
+        color=SEVERITY_COLORS.get(severity, discord.Colour.default()),
+    )
+    embed.add_field(name="Root Cause", value=analysis["root_cause"], inline=False)
+    embed.add_field(name="Affected Area", value=analysis["affected_area"], inline=True)
+    embed.add_field(name="Severity", value=severity.title(), inline=True)
+    embed.add_field(
+        name="Priority",
+        value=f"**{analysis['priority']}** -- {analysis['priority_reasoning']}",
+        inline=False,
+    )
+    embed.add_field(name="Suggested Fix", value=analysis["suggested_fix"], inline=False)
+
+    # Token usage footer
+    if total_tokens >= 1000:
+        token_display = f"~{total_tokens / 1000:.1f}k tokens"
+    else:
+        token_display = f"~{total_tokens} tokens"
+    embed.set_footer(text=f"Analysis by Claude | {token_display}")
 
     return embed
 
