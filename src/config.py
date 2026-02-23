@@ -20,7 +20,7 @@ class Config:
         self.WEBHOOK_SECRET: str = self._require("WEBHOOK_SECRET")
 
         # Optional with defaults
-        self.WEBHOOK_PORT: int = int(os.getenv("WEBHOOK_PORT", "8080"))
+        self.WEBHOOK_PORT: int = int(os.getenv("WEBHOOK_PORT", "8087"))
         self.WEBHOOK_HOST: str = os.getenv("WEBHOOK_HOST", "0.0.0.0")
         self.DATABASE_PATH: str = os.getenv("DATABASE_PATH", "data/bugs.db")
         self.DEVELOPER_ROLE_NAME: str = os.getenv("DEVELOPER_ROLE_NAME", "Developer")

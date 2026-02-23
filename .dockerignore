@@ -1,0 +1,11 @@
+.env
+.git
+.planning
+.claude
+data/
+__pycache__
+*.pyc
+.venv
+venv
+*.egg-info
+index.ts

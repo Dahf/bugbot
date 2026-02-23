@@ -1,0 +1,14 @@
+services:
+  bot:
+    build: .
+    container_name: preservefood-bugbot
+    restart: unless-stopped
+    ports:
+      - "8087:8087"
+    volumes:
+      - bot-data:/app/data
+    env_file:
+      - .env
+
+volumes:
+  bot-data:
