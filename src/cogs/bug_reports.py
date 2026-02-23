@@ -8,6 +8,7 @@ from discord.ext import commands
 
 from src.config import Config
 from src.utils.embeds import (
+    build_console_log_messages,
     build_summary_embed,
     build_thread_detail_message,
     get_auto_archive_duration,
@@ -108,10 +109,12 @@ class BugReports(commands.Cog):
                 hash_id,
             )
 
-        # 7. Post full details in thread
+        # 7. Post full details in thread, then console logs as separate message(s)
         if thread is not None:
             detail_message = build_thread_detail_message(bug)
             await thread.send(detail_message)
+            for log_msg in build_console_log_messages(bug):
+                await thread.send(log_msg)
 
         # 8. Update DB with message/thread references
         thread_id = thread.id if thread is not None else 0

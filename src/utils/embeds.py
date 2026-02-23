@@ -56,8 +56,12 @@ def _format_device_info(raw: str | dict | None) -> str:
     return str(parsed) or "N/A"
 
 
-def _format_console_logs(raw: str | list | None, max_len: int = 1500) -> str:
-    """Format console_logs for display, handling both array and string forms."""
+def _format_console_logs(raw: str | list | None) -> str:
+    """Format console_logs for display, handling both array and string forms.
+
+    Returns the full formatted log string without truncation.  Callers are
+    responsible for splitting into Discord-safe chunks.
+    """
     if raw is None:
         return "N/A"
     parsed = _parse_json_field(raw)
@@ -67,16 +71,48 @@ def _format_console_logs(raw: str | list | None, max_len: int = 1500) -> str:
             if isinstance(entry, dict):
                 level = entry.get("level", "info")
                 icon = "\U0001f534" if level == "error" else "\U0001f7e1" if level == "warn" else "\u26aa"
-                msg = (entry.get("message") or "")[:120]
+                msg = entry.get("message") or ""
                 lines.append(f"{icon} {msg}")
             else:
                 lines.append(str(entry))
-        formatted = "\n".join(lines)
-    else:
-        formatted = str(parsed)
-    if len(formatted) > max_len:
-        formatted = formatted[:max_len] + "\n... (truncated)"
-    return formatted
+        return "\n".join(lines)
+    return str(parsed)
+
+
+def build_console_log_messages(bug: dict) -> list[str]:
+    """Build one or more Discord messages containing all console logs.
+
+    Splits into multiple messages of up to 1900 chars each so that
+    no logs are truncated.  Returns an empty list if there are no logs.
+    """
+    logs_text = _format_console_logs(bug.get("console_logs"))
+    if logs_text == "N/A":
+        return []
+
+    max_chunk = 1900 - len("**Console Logs:**\n```\n\n```")  # ~1870
+    chunks: list[str] = []
+    lines = logs_text.split("\n")
+    current: list[str] = []
+    current_len = 0
+
+    for line in lines:
+        line_len = len(line) + 1  # +1 for newline
+        if current_len + line_len > max_chunk and current:
+            chunks.append("\n".join(current))
+            current = []
+            current_len = 0
+        current.append(line)
+        current_len += line_len
+
+    if current:
+        chunks.append("\n".join(current))
+
+    messages: list[str] = []
+    for i, chunk in enumerate(chunks):
+        header = "**Console Logs:**" if i == 0 else f"**Console Logs (continued {i + 1}/{len(chunks)}):**"
+        messages.append(f"{header}\n```\n{chunk}\n```")
+
+    return messages
 
 
 def _get_display_title(bug: dict) -> str:
@@ -196,10 +232,7 @@ def build_thread_detail_message(bug: dict) -> str:
     if steps:
         sections.append(f"**Steps to Reproduce:** {steps}")
 
-    # Console logs — formatted from structured array or plain string
-    console_logs_display = _format_console_logs(bug.get("console_logs"))
-    if console_logs_display != "N/A":
-        sections.append(f"**Console Logs:**\n```\n{console_logs_display}\n```")
+    # Console logs are sent as separate message(s) via build_console_log_messages()
 
     message = "\n\n".join(sections)
 
