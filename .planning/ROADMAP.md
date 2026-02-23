@@ -44,11 +44,11 @@ Plans:
   2. Each analyzed bug receives an auto-calculated priority score (P1-P4) based on crash type, user impact, and frequency, visible in the bug embed
   3. The bot handles AI API failures gracefully -- if Claude is unavailable, the raw bug report remains visible and the user can retry analysis later
   4. AI token usage is budgeted (max_tokens set per call) and logged, preventing runaway API costs
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
+- [ ] 02-01-PLAN.md -- AI analysis service, database schema extensions, config, and embed builders
+- [ ] 02-02-PLAN.md -- Discord integration: Analyze button callback, AI cog, reaction tracking, priority override
 
 ### Phase 3: GitHub Integration
 **Goal**: Users can go from an analyzed bug report to a GitHub issue with one button click, and from there to an AI-drafted pull request with another -- closing the loop from report to reviewable code change
