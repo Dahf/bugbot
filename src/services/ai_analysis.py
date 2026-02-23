@@ -32,7 +32,9 @@ Priority scoring rubric:
 - P3 (Medium): Minor feature issues, cosmetic bugs with workarounds, low user impact. Soon.
 - P4 (Low): Edge cases, minor polish, nice-to-haves. Backlog.
 
-Weigh multiple factors: severity of the bug itself, estimated user impact/reach, and likely frequency of occurrence. No single factor should dominate."""
+Weigh multiple factors: severity of the bug itself, estimated user impact/reach, and likely frequency of occurrence. No single factor should dominate.
+
+If a screenshot is attached, examine it carefully for visual clues: error dialogs, broken layouts, console output, or UI glitches that supplement the text description."""
 
 # Required keys that must appear in every valid analysis response
 _REQUIRED_KEYS = frozenset(
@@ -70,13 +72,13 @@ class AIAnalysisService:
         response cannot be parsed as valid JSON.
         """
         system_prompt = self._build_system_prompt()
-        user_message = self._build_user_message(bug)
+        user_content = self._build_user_content(bug)
 
         message = await self.client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
             system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
+            messages=[{"role": "user", "content": user_content}],
         )
 
         text = message.content[0].text
@@ -109,8 +111,27 @@ class AIAnalysisService:
         """Return the system prompt for bug analysis."""
         return SYSTEM_PROMPT
 
+    def _build_user_content(self, bug: dict) -> list[dict] | str:
+        """Build user message content, optionally including a screenshot image.
+
+        Returns a list of content blocks when a screenshot is available,
+        or a plain string when there is no image.
+        """
+        text = self._build_user_message(bug)
+
+        screenshot_url = bug.get("screenshot_url")
+        if screenshot_url and screenshot_url.startswith("https://"):
+            return [
+                {
+                    "type": "image",
+                    "source": {"type": "url", "url": screenshot_url},
+                },
+                {"type": "text", "text": text},
+            ]
+        return text
+
     def _build_user_message(self, bug: dict) -> str:
-        """Build the user message containing all available bug details."""
+        """Build the text portion of the user message with all bug details."""
         hash_id = bug.get("hash_id", "unknown")
         title = bug.get("title") or "N/A"
         description = bug.get("description") or "N/A"
