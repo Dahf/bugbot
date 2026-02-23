@@ -141,6 +141,11 @@ def build_summary_embed(bug: dict) -> discord.Embed:
     status_display = f"{STATUS_EMOJI.get(status, '')} {status.replace('_', ' ').title()}"
     embed.add_field(name="Status", value=status_display, inline=True)
     embed.add_field(
+        name="Severity",
+        value=(bug.get("severity") or "N/A").title(),
+        inline=True,
+    )
+    embed.add_field(
         name="Reporter",
         value=_get_reporter_display(bug),
         inline=True,
