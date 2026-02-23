@@ -10,6 +10,7 @@ from discord.ext import commands
 from src.config import Config
 from src.models.bug import BugRepository
 from src.models.database import setup_database, close_database
+from src.services.ai_analysis import AIAnalysisService
 from src.views.bug_buttons import BugActionButton
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ class BugBot(commands.Bot):
         self.config = config
         self.db = None
         self.bug_repo: BugRepository | None = None
+        self.ai_service: AIAnalysisService | None = None
         self.processing_queue: asyncio.Queue = asyncio.Queue()
 
     async def setup_hook(self) -> None:
@@ -40,10 +42,25 @@ class BugBot(commands.Bot):
         self.bug_repo = BugRepository(self.db)
         logger.info("Database initialised at %s", self.config.DATABASE_PATH)
 
+        # Initialize AI analysis service (optional -- bot works without it)
+        if self.config.ANTHROPIC_API_KEY:
+            self.ai_service = AIAnalysisService(
+                api_key=self.config.ANTHROPIC_API_KEY,
+                model=self.config.ANTHROPIC_MODEL,
+                max_tokens=self.config.AI_MAX_TOKENS,
+            )
+            logger.info(
+                "AI analysis service initialized (model: %s)",
+                self.config.ANTHROPIC_MODEL,
+            )
+        else:
+            logger.warning("ANTHROPIC_API_KEY not set -- AI analysis disabled")
+
         # Load cog extensions (wrap in try/except -- cogs may not exist yet)
         cog_extensions = [
             "src.cogs.webhook",
             "src.cogs.bug_reports",
+            "src.cogs.ai_analysis",
         ]
         for ext in cog_extensions:
             try:
@@ -58,6 +75,13 @@ class BugBot(commands.Bot):
         # Must happen in setup_hook before bot connects so buttons survive restarts
         self.add_dynamic_items(BugActionButton)
         logger.info("Registered BugActionButton DynamicItem")
+
+        # Sync app commands (slash commands) with Discord
+        try:
+            synced = await self.tree.sync()
+            logger.info("Synced %d app command(s)", len(synced))
+        except Exception as exc:
+            logger.error("Failed to sync app commands: %s", exc)
 
     async def on_ready(self) -> None:
         """Called when the bot has connected to Discord."""
