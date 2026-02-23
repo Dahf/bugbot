@@ -152,6 +152,11 @@ def build_summary_embed(bug: dict) -> discord.Embed:
     )
     embed.set_footer(text=f"Bug #{hash_id}")
 
+    # Screenshot as embed image (signed URL from Supabase)
+    screenshot_url = bug.get("screenshot_url")
+    if screenshot_url:
+        embed.set_image(url=screenshot_url)
+
     return embed
 
 
