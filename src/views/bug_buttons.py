@@ -3,9 +3,10 @@
 import logging
 import re
 
+import anthropic
 import discord
 
-from src.utils.embeds import build_summary_embed
+from src.utils.embeds import build_summary_embed, build_analysis_embed
 
 logger = logging.getLogger(__name__)
 
@@ -109,8 +110,9 @@ class BugActionButton(
         """Handle button clicks -- dispatch by action type."""
         if self.action == "dismiss":
             await self._handle_dismiss(interaction)
-        elif self.action in ("analyze", "create_issue", "draft_fix"):
-            # These are disabled in Phase 1, but handle gracefully just in case
+        elif self.action == "analyze":
+            await self._handle_analyze(interaction)
+        elif self.action in ("create_issue", "draft_fix"):
             label = _LABEL_MAP.get(self.action, self.action)
             await interaction.response.send_message(
                 f"The **{label}** feature is coming in a future update.",
@@ -166,21 +168,145 @@ class BugActionButton(
             "Bug %s dismissed by %s", self.bug_id, interaction.user
         )
 
+    # -- Analyze handler -------------------------------------------------------
+
+    async def _handle_analyze(self, interaction: discord.Interaction) -> None:
+        """Trigger AI analysis for the bug and post results in the thread."""
+        # a) Defer immediately (ephemeral -- real content goes to the thread)
+        await interaction.response.defer(ephemeral=True)
+
+        bot = interaction.client
+
+        # b) Fetch the bug from DB
+        bug = await bot.bug_repo.get_bug(self.bug_id)
+        if bug is None:
+            await interaction.followup.send(
+                f"Bug #{self.bug_id} not found.", ephemeral=True
+            )
+            return
+
+        # c) Concurrent click guard (status-based)
+        if bug["status"] == "analyzing":
+            await interaction.followup.send(
+                "Analysis already in progress.", ephemeral=True
+            )
+            return
+        if bug["status"] in ("triaged", "issue_created", "fix_drafted", "resolved"):
+            await interaction.followup.send(
+                "This bug has already been analyzed.", ephemeral=True
+            )
+            return
+        if bug["status"] == "dismissed":
+            await interaction.followup.send(
+                "Cannot analyze a dismissed bug.", ephemeral=True
+            )
+            return
+
+        # d) Check AI service availability
+        if bot.ai_service is None:
+            await interaction.followup.send(
+                "AI analysis is not configured. Set ANTHROPIC_API_KEY in environment.",
+                ephemeral=True,
+            )
+            return
+
+        # e) Set status to "analyzing"
+        await bot.bug_repo.update_status(self.bug_id, "analyzing", str(interaction.user))
+
+        # f) Update the channel embed to show "analyzing" status
+        analyzing_bug = await bot.bug_repo.get_bug(self.bug_id)
+        analyzing_embed = build_summary_embed(analyzing_bug)
+        await interaction.message.edit(
+            embed=analyzing_embed, view=build_bug_view(self.bug_id)
+        )
+
+        # g) Get the thread
+        thread = interaction.message.thread
+        if thread is None and bug.get("thread_id"):
+            try:
+                thread = bot.get_channel(bug["thread_id"])
+                if thread is None:
+                    thread = await bot.fetch_channel(bug["thread_id"])
+            except discord.HTTPException:
+                thread = None
+        if thread is None:
+            # Revert status and inform user
+            await bot.bug_repo.update_status(self.bug_id, "received", "system")
+            reverted_bug = await bot.bug_repo.get_bug(self.bug_id)
+            reverted_embed = build_summary_embed(reverted_bug)
+            await interaction.message.edit(
+                embed=reverted_embed, view=build_bug_view(self.bug_id)
+            )
+            await interaction.followup.send(
+                "Could not find the bug thread. Please try again.", ephemeral=True
+            )
+            return
+
+        # h) Post loading message in thread (visible to everyone)
+        loading_msg = await thread.send("Analyzing bug report... please wait.")
+
+        # i) Call AI service
+        try:
+            result = await bot.ai_service.analyze_bug(bug)
+        except (anthropic.APIError, ValueError) as exc:
+            # On failure: delete loading message, revert status, ephemeral error
+            logger.error("AI analysis failed for bug %s: %s", self.bug_id, exc)
+            await loading_msg.delete()
+            await bot.bug_repo.update_status(self.bug_id, "received", "system")
+            # Revert channel embed back to received
+            reverted_bug = await bot.bug_repo.get_bug(self.bug_id)
+            reverted_embed = build_summary_embed(reverted_bug)
+            await interaction.message.edit(
+                embed=reverted_embed, view=build_bug_view(self.bug_id)
+            )
+            await interaction.followup.send(
+                "AI analysis failed. Please try again later.", ephemeral=True
+            )
+            return
+
+        # j) Store analysis results in DB
+        updated_bug = await bot.bug_repo.store_analysis(
+            self.bug_id, result, str(interaction.user)
+        )
+
+        # k) Build and post analysis embed (edit loading message in-place)
+        analysis_embed = build_analysis_embed(updated_bug, result)
+        await loading_msg.edit(content=None, embed=analysis_embed)
+
+        # l) Store the analysis message ID for reaction tracking
+        await bot.bug_repo.store_analysis_message_id(self.bug_id, loading_msg.id)
+
+        # m) Update the channel embed with triaged status + priority badge
+        summary_embed = build_summary_embed(updated_bug)
+        new_view = build_bug_view(self.bug_id, analyzed=True)
+        await interaction.message.edit(embed=summary_embed, view=new_view)
+
+        # n) Confirm to clicker (ephemeral)
+        await interaction.followup.send(
+            f"Analysis complete for bug #{self.bug_id}. Priority: **{result['priority']}**",
+            ephemeral=True,
+        )
+        logger.info(
+            "Bug %s analyzed by %s -- priority %s",
+            self.bug_id, interaction.user, result["priority"],
+        )
+
 
 # -------------------------------------------------------------------------
 # View builder helper
 # -------------------------------------------------------------------------
 
 def build_bug_view(
-    bug_id: str, *, dismissed: bool = False
+    bug_id: str, *, dismissed: bool = False, analyzed: bool = False
 ) -> discord.ui.View:
     """Build the action-button view for a bug report embed.
 
     Args:
         bug_id: The 8-char hex hash ID of the bug.
         dismissed: When ``True`` the Dismiss button is disabled (already
-            used).  Analyze, Create Issue, and Draft Fix are always disabled
-            in Phase 1 regardless of this flag.
+            used).
+        analyzed: When ``True`` the Analyze button is disabled (already
+            analyzed -- one analysis per bug).
 
     Returns:
         A ``View`` with ``timeout=None`` (required for persistent views).
@@ -190,8 +316,13 @@ def build_bug_view(
     # Dismiss -- active when not yet dismissed, disabled once dismissed
     view.add_item(BugActionButton("dismiss", bug_id, disabled=dismissed))
 
-    # Phase 2-3 buttons -- always disabled for now
-    view.add_item(BugActionButton("analyze", bug_id, disabled=True))
+    # Analyze -- disabled if dismissed (cannot analyze dismissed bugs) or
+    # already analyzed (one analysis per bug per locked decision);
+    # enabled otherwise (ready for analysis)
+    analyze_disabled = dismissed or analyzed
+    view.add_item(BugActionButton("analyze", bug_id, disabled=analyze_disabled))
+
+    # Phase 3 buttons -- always disabled for now
     view.add_item(BugActionButton("create_issue", bug_id, disabled=True))
     view.add_item(BugActionButton("draft_fix", bug_id, disabled=True))
 
