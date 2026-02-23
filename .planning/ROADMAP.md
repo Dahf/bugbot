@@ -29,12 +29,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. A Discord thread is automatically created for each bug report, providing a dedicated space for dev discussion
   4. After the bot is restarted, all previously posted bug reports still have functional buttons and all bug data is intact in SQLite
   5. Each bug displays a tracked status (received, analyzing, triaged, issue_created, fix_drafted, resolved) that updates as the bug progresses through the workflow
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
-- [ ] 01-03: TBD
+- [ ] 01-01-PLAN.md -- Project foundation: config, database schema, bug model, utility functions
+- [ ] 01-02-PLAN.md -- Webhook ingestion, Discord embeds/threads/buttons, dismiss handler, persistent interactions
 
 ### Phase 2: AI Analysis
 **Goal**: Users can trigger AI analysis on any bug report and get back a structured assessment of root cause, affected area, severity, and priority -- all posted directly in the bug's thread
@@ -91,7 +90,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation and Ingestion | 0/3 | Not started | - |
+| 1. Foundation and Ingestion | 0/2 | Planning complete | - |
 | 2. AI Analysis | 0/2 | Not started | - |
 | 3. GitHub Integration | 0/3 | Not started | - |
 | 4. Intelligence and Dashboard | 0/2 | Not started | - |
