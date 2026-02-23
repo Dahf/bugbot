@@ -85,7 +85,7 @@ class WebhookServer(commands.Cog):
 
             # Store immediately (store-then-process per FOUND-08)
             hash_id = await self.bot.bug_repo.store_raw_report(payload)
-            logger.info("Stored bug report %s, queuing for processing", hash_id)
+            logger.info("Stored bug report %s, queuing for processing (screenshot_url=%r)", hash_id, payload.get("screenshot_url"))
 
             # Queue for async Discord processing
             await self.bot.processing_queue.put(hash_id)
