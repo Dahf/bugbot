@@ -20,9 +20,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### AI Analysis
 
-- [ ] **AI-01**: User can trigger Claude AI analysis of a bug report via button
+- [x] **AI-01**: User can trigger Claude AI analysis of a bug report via button
 - [x] **AI-02**: AI analysis identifies root cause, affected code area, and severity
-- [ ] **AI-03**: AI analysis results are posted as an embed in the bug's Discord thread
+- [x] **AI-03**: AI analysis results are posted as an embed in the bug's Discord thread
 - [x] **AI-04**: Bot auto-scores bug priority (P1-P4) based on crash type, user impact, and frequency
 - [ ] **AI-05**: Bot detects duplicate bug reports and groups them (smart deduplication)
 - [ ] **AI-06**: Deduplication shows human confirmation for uncertain matches (not auto-dismiss)
@@ -90,9 +90,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FOUND-06 | Phase 1 | Complete |
 | FOUND-07 | Phase 1 | Complete |
 | FOUND-08 | Phase 1 | Complete |
-| AI-01 | Phase 2 | Pending |
+| AI-01 | Phase 2 | Complete |
 | AI-02 | Phase 2 | Complete |
-| AI-03 | Phase 2 | Pending |
+| AI-03 | Phase 2 | Complete |
 | AI-04 | Phase 2 | Complete |
 | AI-05 | Phase 4 | Pending |
 | AI-06 | Phase 4 | Pending |
