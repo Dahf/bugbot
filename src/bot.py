@@ -10,6 +10,7 @@ from discord.ext import commands
 from src.config import Config
 from src.models.bug import BugRepository
 from src.models.database import setup_database, close_database
+from src.views.bug_buttons import BugActionButton
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,10 @@ class BugBot(commands.Bot):
             except Exception as exc:
                 logger.error("Failed to load extension %s: %s", ext, exc)
 
-        # TODO: Register DynamicItems for persistent buttons (added in Plan 01-02)
+        # Register DynamicItems for persistent buttons (FOUND-06)
+        # Must happen in setup_hook before bot connects so buttons survive restarts
+        self.add_dynamic_items(BugActionButton)
+        logger.info("Registered BugActionButton DynamicItem")
 
     async def on_ready(self) -> None:
         """Called when the bot has connected to Discord."""
