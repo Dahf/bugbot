@@ -26,7 +26,17 @@ CREATE TABLE IF NOT EXISTS bugs (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     dismissed_at TEXT,
-    dismissed_by TEXT
+    dismissed_by TEXT,
+    priority TEXT,
+    priority_reasoning TEXT,
+    ai_root_cause TEXT,
+    ai_affected_area TEXT,
+    ai_severity TEXT,
+    ai_suggested_fix TEXT,
+    ai_tokens_used INTEGER,
+    analysis_message_id INTEGER,
+    analyzed_at TEXT,
+    analyzed_by TEXT
 );
 
 CREATE TABLE IF NOT EXISTS status_history (
@@ -45,6 +55,39 @@ CREATE INDEX IF NOT EXISTS idx_status_history_bug_id ON status_history(bug_id);
 """
 
 
+_ANALYSIS_COLUMNS: list[tuple[str, str]] = [
+    ("priority", "TEXT"),
+    ("priority_reasoning", "TEXT"),
+    ("ai_root_cause", "TEXT"),
+    ("ai_affected_area", "TEXT"),
+    ("ai_severity", "TEXT"),
+    ("ai_suggested_fix", "TEXT"),
+    ("ai_tokens_used", "INTEGER"),
+    ("analysis_message_id", "INTEGER"),
+    ("analyzed_at", "TEXT"),
+    ("analyzed_by", "TEXT"),
+]
+
+
+async def migrate_add_analysis_columns(db: aiosqlite.Connection) -> None:
+    """Add Phase 2 analysis columns to the bugs table if missing.
+
+    This handles existing databases created with the Phase 1 schema.
+    Idempotent -- safe to run multiple times.
+    """
+    async with db.execute("PRAGMA table_info(bugs)") as cursor:
+        rows = await cursor.fetchall()
+        existing_columns = {row[1] for row in rows}
+
+    for col_name, col_type in _ANALYSIS_COLUMNS:
+        if col_name not in existing_columns:
+            await db.execute(
+                f"ALTER TABLE bugs ADD COLUMN {col_name} {col_type}"
+            )
+
+    await db.commit()
+
+
 async def setup_database(db_path: str = "data/bugs.db") -> aiosqlite.Connection:
     """Create (or open) the SQLite database and ensure the schema exists.
 
@@ -60,6 +103,10 @@ async def setup_database(db_path: str = "data/bugs.db") -> aiosqlite.Connection:
     await db.execute("PRAGMA foreign_keys=ON")
     await db.executescript(SCHEMA)
     await db.commit()
+
+    # Migrate existing databases to include Phase 2 analysis columns
+    await migrate_add_analysis_columns(db)
+
     return db
 
 

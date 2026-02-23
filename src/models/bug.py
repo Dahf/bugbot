@@ -234,6 +234,102 @@ class BugRepository:
         return await self.get_bug(hash_id)
 
     # ------------------------------------------------------------------
+    # AI Analysis
+    # ------------------------------------------------------------------
+
+    async def store_analysis(
+        self, hash_id: str, analysis: dict, analyzed_by: str
+    ) -> dict | None:
+        """Store AI analysis results for a bug and transition status to 'triaged'.
+
+        *analysis* must contain keys: root_cause, affected_area, severity,
+        suggested_fix, priority, priority_reasoning, and usage.total_tokens.
+
+        Returns the updated bug dict, or ``None`` if *hash_id* not found.
+        """
+        bug = await self.get_bug(hash_id)
+        if bug is None:
+            return None
+
+        now = _utcnow_iso()
+        old_status = bug["status"]
+
+        await self.db.execute(
+            """
+            UPDATE bugs
+            SET priority = ?,
+                priority_reasoning = ?,
+                ai_root_cause = ?,
+                ai_affected_area = ?,
+                ai_severity = ?,
+                ai_suggested_fix = ?,
+                ai_tokens_used = ?,
+                analyzed_at = ?,
+                analyzed_by = ?,
+                status = 'triaged',
+                updated_at = ?
+            WHERE hash_id = ?
+            """,
+            (
+                analysis["priority"],
+                analysis["priority_reasoning"],
+                analysis["root_cause"],
+                analysis["affected_area"],
+                analysis["severity"],
+                analysis["suggested_fix"],
+                analysis["usage"]["total_tokens"],
+                now,
+                analyzed_by,
+                now,
+                hash_id,
+            ),
+        )
+        await self.db.execute(
+            """
+            INSERT INTO status_history (bug_id, old_status, new_status, changed_by, changed_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (bug["id"], old_status, "triaged", analyzed_by, now),
+        )
+        await self.db.commit()
+        return await self.get_bug(hash_id)
+
+    async def store_analysis_message_id(
+        self, hash_id: str, message_id: int
+    ) -> None:
+        """Store the Discord message ID of the analysis embed."""
+        now = _utcnow_iso()
+        await self.db.execute(
+            "UPDATE bugs SET analysis_message_id = ?, updated_at = ? WHERE hash_id = ?",
+            (message_id, now, hash_id),
+        )
+        await self.db.commit()
+
+    async def update_priority(
+        self, hash_id: str, priority: str, reasoning: str, changed_by: str
+    ) -> dict | None:
+        """Manually override the priority and reasoning for a bug.
+
+        Does NOT change the bug's status -- this is a priority-only update.
+        Returns the updated bug dict, or ``None`` if *hash_id* not found.
+        """
+        bug = await self.get_bug(hash_id)
+        if bug is None:
+            return None
+
+        now = _utcnow_iso()
+        await self.db.execute(
+            """
+            UPDATE bugs
+            SET priority = ?, priority_reasoning = ?, updated_at = ?
+            WHERE hash_id = ?
+            """,
+            (priority, reasoning, now, hash_id),
+        )
+        await self.db.commit()
+        return await self.get_bug(hash_id)
+
+    # ------------------------------------------------------------------
     # Store-then-process entry point
     # ------------------------------------------------------------------
 

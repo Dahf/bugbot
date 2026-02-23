@@ -28,6 +28,13 @@ class Config:
             "SIGNATURE_HEADER_NAME", "X-Webhook-Signature"
         )
 
+        # AI Analysis (Phase 2) -- optional, bot works without these
+        self.ANTHROPIC_API_KEY: str | None = os.getenv("ANTHROPIC_API_KEY")
+        self.ANTHROPIC_MODEL: str = os.getenv(
+            "ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"
+        )
+        self.AI_MAX_TOKENS: int = int(os.getenv("AI_MAX_TOKENS", "1024"))
+
     @staticmethod
     def _require(key: str) -> str:
         """Return the value for *key* or raise if missing/empty."""
