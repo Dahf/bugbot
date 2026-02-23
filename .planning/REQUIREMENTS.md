@@ -9,12 +9,12 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Bot Foundation
 
-- [ ] **FOUND-01**: Bot receives bug reports from Supabase webhook with secret validation
-- [ ] **FOUND-02**: Bot displays bug reports as rich Discord embeds (description, user, device, time, console logs)
-- [ ] **FOUND-03**: Bot auto-creates a Discord thread for each bug report for dev discussion
-- [ ] **FOUND-04**: Bot presents action buttons on each report (Analyze, Create Issue, Draft Fix, Dismiss)
+- [x] **FOUND-01**: Bot receives bug reports from Supabase webhook with secret validation
+- [x] **FOUND-02**: Bot displays bug reports as rich Discord embeds (description, user, device, time, console logs)
+- [x] **FOUND-03**: Bot auto-creates a Discord thread for each bug report for dev discussion
+- [x] **FOUND-04**: Bot presents action buttons on each report (Analyze, Create Issue, Draft Fix, Dismiss)
 - [x] **FOUND-05**: Bot persists all bug data and state in SQLite (survives restarts)
-- [ ] **FOUND-06**: Button interactions remain functional after bot restarts (persistent views)
+- [x] **FOUND-06**: Button interactions remain functional after bot restarts (persistent views)
 - [x] **FOUND-07**: Each bug has a tracked status (received → analyzing → triaged → issue_created → fix_drafted → resolved)
 - [x] **FOUND-08**: Bot handles webhook delivery failures gracefully (store-then-process pattern)
 
@@ -82,12 +82,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FOUND-01 | Phase 1 | Pending |
-| FOUND-02 | Phase 1 | Pending |
-| FOUND-03 | Phase 1 | Pending |
-| FOUND-04 | Phase 1 | Pending |
+| FOUND-01 | Phase 1 | Complete |
+| FOUND-02 | Phase 1 | Complete |
+| FOUND-03 | Phase 1 | Complete |
+| FOUND-04 | Phase 1 | Complete |
 | FOUND-05 | Phase 1 | Complete |
-| FOUND-06 | Phase 1 | Pending |
+| FOUND-06 | Phase 1 | Complete |
 | FOUND-07 | Phase 1 | Complete |
 | FOUND-08 | Phase 1 | Complete |
 | AI-01 | Phase 2 | Pending |
