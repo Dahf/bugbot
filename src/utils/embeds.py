@@ -1,5 +1,6 @@
 """Embed builder helpers for summary and thread detail views."""
 
+import json
 from datetime import datetime
 
 import discord
@@ -33,18 +34,87 @@ STATUS_EMOJI: dict[str, str] = {
 # -----------------------------------------------------------------------
 
 
+def _parse_json_field(value: str | list | dict | None) -> str | list | dict | None:
+    """Parse a JSON string back into a Python object, or return as-is."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, ValueError):
+            return value
+    return value
+
+
+def _format_device_info(raw: str | dict | None) -> str:
+    """Format device_info for display, handling both object and string forms."""
+    if raw is None:
+        return "N/A"
+    parsed = _parse_json_field(raw)
+    if isinstance(parsed, dict):
+        platform = parsed.get("platform", "?")
+        os_version = parsed.get("osVersion", "?")
+        return f"{platform} {os_version}"
+    return str(parsed) or "N/A"
+
+
+def _format_console_logs(raw: str | list | None, max_len: int = 1500) -> str:
+    """Format console_logs for display, handling both array and string forms."""
+    if raw is None:
+        return "N/A"
+    parsed = _parse_json_field(raw)
+    if isinstance(parsed, list):
+        lines = []
+        for entry in parsed:
+            if isinstance(entry, dict):
+                level = entry.get("level", "info")
+                icon = "\U0001f534" if level == "error" else "\U0001f7e1" if level == "warn" else "\u26aa"
+                msg = (entry.get("message") or "")[:120]
+                lines.append(f"{icon} {msg}")
+            else:
+                lines.append(str(entry))
+        formatted = "\n".join(lines)
+    else:
+        formatted = str(parsed)
+    if len(formatted) > max_len:
+        formatted = formatted[:max_len] + "\n... (truncated)"
+    return formatted
+
+
+def _get_display_title(bug: dict) -> str:
+    """Get a display title from title or description."""
+    title = bug.get("title")
+    if title:
+        return title
+    description = bug.get("description") or ""
+    if description:
+        # Use first line or first 80 chars of description as title
+        first_line = description.split("\n")[0]
+        if len(first_line) > 80:
+            return first_line[:77] + "..."
+        return first_line
+    return "Untitled Bug Report"
+
+
+def _get_reporter_display(bug: dict) -> str:
+    """Get reporter display string, preferring name over raw user_id."""
+    name = bug.get("reporter_name")
+    user_id = bug.get("user_id") or "Unknown"
+    if name:
+        return f"{name} ({user_id[:8]}...)" if len(user_id) > 8 else f"{name} ({user_id})"
+    return user_id
+
+
 def build_summary_embed(bug: dict) -> discord.Embed:
     """Build the summary embed posted to the main bug-reports channel.
 
-    Per CONTEXT.md decisions the summary embed shows **only** title, user,
-    status, and severity.  Full details go in the per-bug thread.
+    Shows title/description, user, status, and device info.
+    Full details go in the per-bug thread.
 
     For dismissed bugs the embed uses grey colour and a ``[DISMISSED]``
     title prefix.
     """
     status = bug.get("status", "received")
     hash_id = bug["hash_id"]
-    title = bug.get("title") or "Untitled Bug Report"
+    title = _get_display_title(bug)
 
     # Dismissed styling
     if status == "dismissed":
@@ -71,13 +141,13 @@ def build_summary_embed(bug: dict) -> discord.Embed:
     status_display = f"{STATUS_EMOJI.get(status, '')} {status.replace('_', ' ').title()}"
     embed.add_field(name="Status", value=status_display, inline=True)
     embed.add_field(
-        name="Severity",
-        value=bug.get("severity") or "Unknown",
+        name="Reporter",
+        value=_get_reporter_display(bug),
         inline=True,
     )
     embed.add_field(
-        name="Reporter",
-        value=bug.get("user_id") or "Unknown",
+        name="Device",
+        value=_format_device_info(bug.get("device_info")),
         inline=True,
     )
     embed.set_footer(text=f"Bug #{hash_id}")
@@ -89,7 +159,6 @@ def build_summary_embed(bug: dict) -> discord.Embed:
 # Thread detail message
 # -----------------------------------------------------------------------
 
-_MAX_CONSOLE_LOG_LEN = 1500
 _MAX_MESSAGE_LEN = 1900  # buffer under Discord's 2000-char limit
 
 
@@ -97,35 +166,35 @@ def build_thread_detail_message(bug: dict) -> str:
     """Build the full-detail text message for the per-bug thread.
 
     Includes all available fields with ``N/A`` fallbacks for missing data.
-    Console logs are wrapped in a code block and truncated at 1 500 chars.
+    Handles Supabase payload structure (device_info as object, console_logs
+    as array of {level, message} entries).
     """
     hash_id = bug.get("hash_id", "????")
+    display_title = _get_display_title(bug)
 
     sections: list[str] = [
         f"## Bug Report #{hash_id}",
-        f"**Title:** {bug.get('title') or 'N/A'}",
         f"**Description:** {bug.get('description') or 'N/A'}",
-        f"**Reporter:** {bug.get('user_id') or 'N/A'}",
-        f"**Device:** {bug.get('device_info') or 'N/A'}",
+        f"**Reporter:** {_get_reporter_display(bug)}",
+        f"**Device:** {_format_device_info(bug.get('device_info'))}",
         f"**App Version:** {bug.get('app_version') or 'N/A'}",
         f"**Timestamp:** {bug.get('created_at') or 'N/A'}",
     ]
 
-    # Steps to reproduce
-    steps = bug.get("steps_to_reproduce") or "N/A"
-    sections.append(f"**Steps to Reproduce:** {steps}")
+    # Steps to reproduce (optional — not present in all Supabase payloads)
+    steps = bug.get("steps_to_reproduce")
+    if steps:
+        sections.append(f"**Steps to Reproduce:** {steps}")
 
-    # Console logs -- may be very long; truncate and wrap in code block
-    console_logs = bug.get("console_logs") or "N/A"
-    if console_logs != "N/A" and len(console_logs) > _MAX_CONSOLE_LOG_LEN:
-        console_logs = console_logs[:_MAX_CONSOLE_LOG_LEN] + "\n... (truncated)"
-    sections.append(f"**Console Logs:**\n```\n{console_logs}\n```")
+    # Console logs — formatted from structured array or plain string
+    console_logs_display = _format_console_logs(bug.get("console_logs"))
+    if console_logs_display != "N/A":
+        sections.append(f"**Console Logs:**\n```\n{console_logs_display}\n```")
 
     message = "\n\n".join(sections)
 
     # Final safety truncation to stay under 2000-char Discord message limit
     if len(message) > _MAX_MESSAGE_LEN:
-        # Truncate the description to make room
         truncation_note = "\n\n_... message truncated to fit Discord limits_"
         message = message[: _MAX_MESSAGE_LEN - len(truncation_note)] + truncation_note
 
@@ -137,12 +206,13 @@ def build_thread_detail_message(bug: dict) -> str:
 # -----------------------------------------------------------------------
 
 
-def get_thread_name(hash_id: str, title: str | None) -> str:
+def get_thread_name(hash_id: str, bug: dict) -> str:
     """Return a thread name in the format ``#<hash_id> -- <title>``.
 
+    Uses title or description excerpt as display name.
     Truncates to 100 characters (Discord thread name limit).
     """
-    display_title = title or "Untitled Bug Report"
+    display_title = _get_display_title(bug)
     name = f"#{hash_id} \u2014 {display_title}"
     return name[:100]
 

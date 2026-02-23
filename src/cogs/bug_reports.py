@@ -96,7 +96,7 @@ class BugReports(commands.Cog):
         # 6. Create thread from the message
         thread: discord.Thread | None = None
         try:
-            thread_name = get_thread_name(hash_id, bug.get("title"))
+            thread_name = get_thread_name(hash_id, bug)
             archive_duration = get_auto_archive_duration(channel.guild)
             thread = await message.create_thread(
                 name=thread_name,

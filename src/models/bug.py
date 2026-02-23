@@ -44,20 +44,31 @@ class BugRepository:
         """Insert a new bug from a webhook payload and return it as a dict.
 
         Extracts known fields from *raw_payload* with ``.get()`` (defaulting
-        to ``None``).  Stores the full payload as a JSON string.  Inserts an
-        initial ``status_history`` entry (old_status=None, new_status='received').
+        to ``None``).  Structured fields (device_info, console_logs) are
+        serialized to JSON strings for storage.  Stores the full payload as a
+        JSON string.  Inserts an initial ``status_history`` entry
+        (old_status=None, new_status='received').
         """
         now = _utcnow_iso()
         raw_json = json.dumps(raw_payload)
+
+        # Serialize structured fields to JSON strings for TEXT columns
+        device_info = raw_payload.get("device_info")
+        if device_info is not None and not isinstance(device_info, str):
+            device_info = json.dumps(device_info)
+
+        console_logs = raw_payload.get("console_logs")
+        if console_logs is not None and not isinstance(console_logs, str):
+            console_logs = json.dumps(console_logs)
 
         await self.db.execute(
             """
             INSERT INTO bugs (
                 hash_id, status, title, description, user_id,
-                device_info, app_version, console_logs,
-                steps_to_reproduce, severity, raw_payload,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                reporter_name, device_info, app_version, console_logs,
+                steps_to_reproduce, severity, screenshot_url,
+                raw_payload, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 hash_id,
@@ -65,11 +76,13 @@ class BugRepository:
                 raw_payload.get("title"),
                 raw_payload.get("description"),
                 raw_payload.get("user_id"),
-                raw_payload.get("device_info"),
+                raw_payload.get("reporter_name"),
+                device_info,
                 raw_payload.get("app_version"),
-                raw_payload.get("console_logs"),
+                console_logs,
                 raw_payload.get("steps_to_reproduce"),
                 raw_payload.get("severity"),
+                raw_payload.get("screenshot_url"),
                 raw_json,
                 now,
                 now,
