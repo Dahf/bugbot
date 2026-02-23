@@ -16,6 +16,8 @@ services:
       - DATABASE_PATH=${DATABASE_PATH:-data/bugs.db}
       - DEVELOPER_ROLE_NAME=${DEVELOPER_ROLE_NAME:-Developer}
       - SIGNATURE_HEADER_NAME=${SIGNATURE_HEADER_NAME:-X-Webhook-Signature}
-
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}
+      - AI_MAX_TOKENS=${AI_MAX_TOKENS:-1024}
 volumes:
   bot-data:
