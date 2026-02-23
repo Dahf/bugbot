@@ -7,8 +7,15 @@ services:
       - "8087:8087"
     volumes:
       - bot-data:/app/data
-    env_file:
-      - .env
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - BUG_CHANNEL_ID=${BUG_CHANNEL_ID}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - WEBHOOK_PORT=${WEBHOOK_PORT:-8087}
+      - WEBHOOK_HOST=${WEBHOOK_HOST:-0.0.0.0}
+      - DATABASE_PATH=${DATABASE_PATH:-data/bugs.db}
+      - DEVELOPER_ROLE_NAME=${DEVELOPER_ROLE_NAME:-Developer}
+      - SIGNATURE_HEADER_NAME=${SIGNATURE_HEADER_NAME:-X-Webhook-Signature}
 
 volumes:
   bot-data:
