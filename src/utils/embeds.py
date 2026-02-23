@@ -212,7 +212,7 @@ def build_summary_embed(bug: dict) -> discord.Embed:
 
     # Screenshot as embed image (signed URL from Supabase)
     screenshot_url = bug.get("screenshot_url")
-    if screenshot_url:
+    if screenshot_url and screenshot_url.startswith(("http://", "https://")):
         embed.set_image(url=screenshot_url)
 
     return embed
