@@ -69,7 +69,7 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Feature | Reason |
 |---------|--------|
-| Auto-merge of AI-generated PRs | Human always reviews and merges — safety boundary |
+| Auto-merge of AI-generated PRs | Human always reviews and merges -- safety boundary |
 | Web dashboard | Discord-first; a web UI adds infrastructure complexity without matching the workflow |
 | Real-time crash monitoring (Sentry-style) | This processes reports, not live telemetry |
 | Mobile app changes to bug reporting | Use existing Supabase webhook as-is |
@@ -94,8 +94,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AI-02 | Phase 2 | Pending |
 | AI-03 | Phase 2 | Pending |
 | AI-04 | Phase 2 | Pending |
-| AI-05 | Phase 2 | Pending |
-| AI-06 | Phase 2 | Pending |
+| AI-05 | Phase 4 | Pending |
+| AI-06 | Phase 4 | Pending |
 | AI-07 | Phase 2 | Pending |
 | GH-01 | Phase 3 | Pending |
 | GH-02 | Phase 3 | Pending |
@@ -116,8 +116,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 **Coverage:**
 - v1 requirements: 30 total
 - Mapped to phases: 30
-- Unmapped: 0 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-23*
-*Last updated: 2026-02-23 after initial definition*
+*Last updated: 2026-02-23 after roadmap creation*
