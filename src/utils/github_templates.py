@@ -277,7 +277,10 @@ def get_area_label(area: str | None) -> tuple[str, str] | None:
     """
     if not area:
         return None
-    return (f"area:{area.lower().strip()}", "6366f1")
+    label = f"area:{area.lower().strip()}"
+    if len(label) > 50:
+        label = label[:47] + "..."
+    return (label, "6366f1")
 
 
 def get_bot_label() -> tuple[str, str]:
