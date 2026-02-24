@@ -68,8 +68,11 @@ class Config:
             if not os.path.isabs(key_file):
                 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                 key_file = os.path.join(project_root, key_file)
-            with open(key_file, "r") as f:
-                return f.read()
+            try:
+                with open(key_file, "r") as f:
+                    return f.read()
+            except FileNotFoundError:
+                pass  # Fall through to GITHUB_PRIVATE_KEY
 
         key_b64 = os.getenv("GITHUB_PRIVATE_KEY")
         if key_b64:
