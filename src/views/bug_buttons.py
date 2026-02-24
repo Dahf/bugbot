@@ -429,9 +429,10 @@ class BugActionButton(
             )
 
         except Exception as exc:
+            resp_data = getattr(getattr(exc, 'response', None), 'parsed_data', None)
             logger.error(
-                "Failed to create GitHub issue for bug %s: %s",
-                self.bug_id, exc,
+                "Failed to create GitHub issue for bug %s: %s | detail: %s",
+                self.bug_id, exc, resp_data,
             )
             await interaction.followup.send(
                 "Failed to create issue. Please try again.", ephemeral=True
