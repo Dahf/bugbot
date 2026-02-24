@@ -38,7 +38,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **GH-06**: Bot creates a feature branch, commits the fix, and opens a PR automatically
 - [ ] **GH-07**: PR description includes bug context, analysis, and link to Discord thread
 - [ ] **GH-08**: Bot never commits to the default branch (main/master)
-- [ ] **GH-09**: Bot handles GitHub API rate limits with retry and backoff
+- [x] **GH-09**: Bot handles GitHub API rate limits with retry and backoff
 - [ ] **GH-10**: Bot cleans up merged/stale branches
 
 ### Dashboard & Reporting
@@ -105,7 +105,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GH-06 | Phase 3 | Pending |
 | GH-07 | Phase 3 | Pending |
 | GH-08 | Phase 3 | Pending |
-| GH-09 | Phase 3 | Pending |
+| GH-09 | Phase 3 | Complete |
 | GH-10 | Phase 3 | Pending |
 | DASH-01 | Phase 4 | Pending |
 | DASH-02 | Phase 4 | Pending |
