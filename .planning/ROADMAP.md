@@ -33,7 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01-PLAN.md -- Project foundation: config, database schema, bug model, utility functions
-- [ ] 01-02-PLAN.md -- Webhook ingestion, Discord embeds/threads/buttons, dismiss handler, persistent interactions
+- [x] 01-02-PLAN.md -- Webhook ingestion, Discord embeds/threads/buttons, dismiss handler, persistent interactions
 
 ### Phase 2: AI Analysis
 **Goal**: Users can trigger AI analysis on any bug report and get back a structured assessment of root cause, affected area, severity, and priority -- all posted directly in the bug's thread
@@ -63,8 +63,8 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 03-01-PLAN.md -- GitHub service foundation: config, database schema, App auth service, markdown templates
-- [ ] 03-02-PLAN.md -- /init slash command setup and Create Issue button with labels and embed updates
+- [x] 03-01-PLAN.md -- GitHub service foundation: config, database schema, App auth service, markdown templates
+- [x] 03-02-PLAN.md -- /init slash command setup and Create Issue button with labels and embed updates
 - [ ] 03-03-PLAN.md -- Draft Fix button (branch + PR scaffold) and GitHub webhook event handlers with auto-resolve
 
 ### Phase 4: Intelligence and Dashboard
@@ -92,5 +92,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Foundation and Ingestion | 2/2 | Complete   | 2026-02-23 |
 | 2. AI Analysis | 2/2 | Complete | 2026-02-24 |
-| 3. GitHub Integration | 0/3 | Planning complete | - |
+| 3. GitHub Integration | 2/3 | In Progress | - |
 | 4. Intelligence and Dashboard | 0/2 | Not started | - |

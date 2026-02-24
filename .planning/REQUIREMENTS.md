@@ -30,9 +30,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### GitHub Integration
 
-- [ ] **GH-01**: User can create a GitHub issue from a bug report via button
-- [ ] **GH-02**: GitHub issue includes structured details (description, steps, device info, analysis results)
-- [ ] **GH-03**: GitHub issue links back to the Discord thread
+- [x] **GH-01**: User can create a GitHub issue from a bug report via button
+- [x] **GH-02**: GitHub issue includes structured details (description, steps, device info, analysis results)
+- [x] **GH-03**: GitHub issue links back to the Discord thread
 - [ ] **GH-04**: User can trigger AI-drafted code fix via button
 - [ ] **GH-05**: AI code fix uses repository context (reads relevant source files)
 - [ ] **GH-06**: Bot creates a feature branch, commits the fix, and opens a PR automatically
@@ -97,9 +97,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AI-05 | Phase 4 | Pending |
 | AI-06 | Phase 4 | Pending |
 | AI-07 | Phase 2 | Complete |
-| GH-01 | Phase 3 | Pending |
-| GH-02 | Phase 3 | Pending |
-| GH-03 | Phase 3 | Pending |
+| GH-01 | Phase 3 | Complete |
+| GH-02 | Phase 3 | Complete |
+| GH-03 | Phase 3 | Complete |
 | GH-04 | Phase 3 | Pending |
 | GH-05 | Phase 3 | Pending |
 | GH-06 | Phase 3 | Pending |
