@@ -14,6 +14,11 @@ from anthropic import AsyncAnthropic, beta_async_tool
 
 logger = logging.getLogger(__name__)
 
+# The SDK logs a noisy ERROR traceback when the model omits a required
+# tool argument (e.g. write_file without content).  We already catch the
+# resulting ValueError and retry, so downgrade the SDK logger to WARNING.
+logging.getLogger("anthropic.lib.tools._beta_runner").setLevel(logging.WARNING)
+
 
 # ------------------------------------------------------------------
 # Rate-limit-aware HTTP transport
@@ -217,7 +222,7 @@ class CodeFixService:
         max_rounds: int = 3,
         max_files: int = 15,
         ci_timeout: int = 300,
-        request_min_interval: float = 2.0,
+        request_min_interval: float = 10.0,
     ) -> None:
         # Throttle HTTP requests to avoid 429 rate-limit errors.
         # The tool_runner fires sequential requests as fast as possible;
