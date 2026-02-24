@@ -9,6 +9,8 @@ import discord
 from src.utils.embeds import build_summary_embed, build_analysis_embed, _get_display_title
 from src.utils.github_templates import (
     build_issue_body,
+    build_pr_body,
+    build_discord_thread_url,
     get_priority_label,
     get_area_label,
     get_bot_label,
@@ -121,11 +123,7 @@ class BugActionButton(
         elif self.action == "create_issue":
             await self._handle_create_issue(interaction)
         elif self.action == "draft_fix":
-            label = _LABEL_MAP.get(self.action, self.action)
-            await interaction.response.send_message(
-                f"The **{label}** feature is coming in a future update.",
-                ephemeral=True,
-            )
+            await self._handle_draft_fix(interaction)
         else:
             await interaction.response.send_message(
                 "Unknown action.", ephemeral=True
@@ -394,10 +392,9 @@ class BugActionButton(
 
             # 11. Update channel embed
             if updated_bug:
+                flags = _derive_bug_flags(updated_bug)
                 new_embed = build_summary_embed(updated_bug)
-                new_view = build_bug_view(
-                    self.bug_id, analyzed=True, issue_created=True
-                )
+                new_view = build_bug_view(self.bug_id, **flags)
                 await interaction.message.edit(embed=new_embed, view=new_view)
 
             # 12. Post in thread
@@ -439,6 +436,204 @@ class BugActionButton(
                 "Failed to create issue. Please try again.", ephemeral=True
             )
 
+    # -- Draft Fix handler -----------------------------------------------------
+
+    async def _handle_draft_fix(self, interaction: discord.Interaction) -> None:
+        """Create a feature branch and PR scaffold for the bug."""
+        # 1. Defer immediately (GitHub API calls take time)
+        await interaction.response.defer(ephemeral=True)
+
+        bot = interaction.client
+
+        # 2. Fetch bug and guard checks
+        bug = await bot.bug_repo.get_bug(self.bug_id)
+        if bug is None:
+            await interaction.followup.send(
+                f"Bug #{self.bug_id} not found.", ephemeral=True
+            )
+            return
+
+        if bug["status"] == "dismissed":
+            await interaction.followup.send(
+                "Cannot draft a fix for a dismissed bug.", ephemeral=True
+            )
+            return
+
+        if bug["status"] not in (
+            "triaged", "issue_created", "fix_drafted", "resolved"
+        ):
+            await interaction.followup.send(
+                "Bug must be analyzed first. Click **Analyze** before drafting a fix.",
+                ephemeral=True,
+            )
+            return
+
+        # Block re-trigger if branch already exists
+        if bug.get("github_branch_name") is not None:
+            pr_url = bug.get("github_pr_url", "")
+            branch = bug["github_branch_name"]
+            msg = f"A fix branch already exists: `{branch}`."
+            if pr_url:
+                msg += f" PR: {pr_url}"
+            await interaction.followup.send(msg, ephemeral=True)
+            return
+
+        # 3. Check GitHub service availability
+        if bot.github_service is None:
+            await interaction.followup.send(
+                "GitHub integration is not configured.", ephemeral=True
+            )
+            return
+
+        # 4. Get guild config
+        config = await bot.github_config_repo.get_config(interaction.guild_id)
+        if config is None:
+            await interaction.followup.send(
+                "No GitHub repo connected. Run `/init` first.", ephemeral=True
+            )
+            return
+
+        owner = config["repo_owner"]
+        repo = config["repo_name"]
+        branch_name = None
+
+        try:
+            # 5. Build branch name
+            display_title = _get_display_title(bug)
+            branch_name = bot.github_service.build_branch_name(
+                bug["hash_id"], display_title
+            )
+
+            # 6. Get default branch SHA
+            default_branch, base_sha = (
+                await bot.github_service.get_default_branch_sha(owner, repo)
+            )
+
+            # 7. Create branch (GH-08: always a feature branch, never default)
+            try:
+                await bot.github_service.create_branch(
+                    owner, repo, branch_name, base_sha
+                )
+            except Exception as branch_exc:
+                # 422 = ref already exists
+                if "422" in str(branch_exc) or "Reference already exists" in str(branch_exc):
+                    await interaction.followup.send(
+                        f"Branch `{branch_name}` already exists. "
+                        "This bug may already have a draft fix.",
+                        ephemeral=True,
+                    )
+                    return
+                raise
+
+            # 8. Build PR body
+            issue_number = bug.get("github_issue_number")
+            discord_thread_url = None
+            if bug.get("thread_id") and interaction.guild_id:
+                discord_thread_url = build_discord_thread_url(
+                    interaction.guild_id, bug["thread_id"]
+                )
+            pr_body = build_pr_body(
+                bug,
+                issue_number=issue_number,
+                discord_thread_url=discord_thread_url,
+            )
+
+            # 9. Build PR title
+            pr_title = f"fix: {display_title} (#{bug['hash_id']})"
+
+            # 10. Create PR
+            pr = await bot.github_service.create_pull_request(
+                owner, repo, pr_title, pr_body, branch_name, default_branch
+            )
+
+            # 11. Store in DB
+            updated_bug = await bot.bug_repo.store_github_pr(
+                self.bug_id,
+                pr["number"],
+                pr["html_url"],
+                branch_name,
+                str(interaction.user),
+            )
+
+            # 12. Update channel embed
+            if updated_bug:
+                flags = _derive_bug_flags(updated_bug)
+                new_embed = build_summary_embed(updated_bug)
+                new_view = build_bug_view(self.bug_id, **flags)
+                await interaction.message.edit(embed=new_embed, view=new_view)
+
+            # 13. Post in thread
+            thread = interaction.message.thread
+            if thread is None and bug.get("thread_id"):
+                try:
+                    thread = bot.get_channel(bug["thread_id"])
+                    if thread is None:
+                        thread = await bot.fetch_channel(bug["thread_id"])
+                except discord.HTTPException:
+                    thread = None
+
+            if thread is not None:
+                try:
+                    await thread.send(
+                        f"Draft fix PR created: [{pr_title}]({pr['html_url']})"
+                    )
+                except discord.HTTPException:
+                    logger.warning(
+                        "Could not post PR link in thread for bug %s",
+                        self.bug_id,
+                    )
+
+            # 14. Ephemeral confirmation
+            await interaction.followup.send(
+                f"Draft fix PR created: {pr['html_url']}", ephemeral=True
+            )
+            logger.info(
+                "Bug %s -> PR #%s by %s",
+                self.bug_id, pr["number"], interaction.user,
+            )
+
+        except Exception as exc:
+            logger.error(
+                "Failed to create draft fix for bug %s: %s",
+                self.bug_id, exc,
+            )
+            # Cleanup: delete the branch if it was created but PR creation failed
+            if branch_name is not None:
+                try:
+                    await bot.github_service.delete_branch(
+                        owner, repo, branch_name
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to cleanup branch %s after draft fix error",
+                        branch_name,
+                    )
+            await interaction.followup.send(
+                "Failed to create draft fix. Please try again.", ephemeral=True
+            )
+
+
+# -------------------------------------------------------------------------
+# Bug flag derivation helper
+# -------------------------------------------------------------------------
+
+
+def _derive_bug_flags(bug: dict) -> dict:
+    """Derive ``build_bug_view`` keyword arguments from a bug dict.
+
+    Centralises the status-to-flag mapping so that every caller of
+    ``build_bug_view`` produces consistent button states.
+    """
+    status = bug.get("status", "received")
+    return {
+        "dismissed": status == "dismissed",
+        "analyzed": status in (
+            "triaged", "issue_created", "fix_drafted", "resolved"
+        ),
+        "issue_created": bug.get("github_issue_number") is not None,
+        "fix_drafted": bug.get("github_branch_name") is not None,
+    }
+
 
 # -------------------------------------------------------------------------
 # View builder helper
@@ -450,6 +645,7 @@ def build_bug_view(
     dismissed: bool = False,
     analyzed: bool = False,
     issue_created: bool = False,
+    fix_drafted: bool = False,
 ) -> discord.ui.View:
     """Build the action-button view for a bug report embed.
 
@@ -461,6 +657,8 @@ def build_bug_view(
             analyzed -- one analysis per bug).
         issue_created: When ``True`` the Create Issue button is disabled
             (issue already exists).
+        fix_drafted: When ``True`` the Draft Fix button is disabled
+            (branch/PR already exists).
 
     Returns:
         A ``View`` with ``timeout=None`` (required for persistent views).
@@ -483,7 +681,11 @@ def build_bug_view(
         BugActionButton("create_issue", bug_id, disabled=create_issue_disabled)
     )
 
-    # Draft Fix -- disabled for now (Plan 03)
-    view.add_item(BugActionButton("draft_fix", bug_id, disabled=True))
+    # Draft Fix -- enabled when analyzed and no fix drafted yet;
+    # disabled when not analyzed, dismissed, or fix already drafted
+    draft_fix_disabled = dismissed or not analyzed or fix_drafted
+    view.add_item(
+        BugActionButton("draft_fix", bug_id, disabled=draft_fix_disabled)
+    )
 
     return view

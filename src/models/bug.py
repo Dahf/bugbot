@@ -377,6 +377,73 @@ class BugRepository:
         return await self.get_bug(hash_id)
 
     # ------------------------------------------------------------------
+    # GitHub PR
+    # ------------------------------------------------------------------
+
+    async def store_github_pr(
+        self,
+        hash_id: str,
+        pr_number: int,
+        pr_url: str,
+        branch_name: str,
+        changed_by: str,
+    ) -> dict | None:
+        """Store GitHub PR details and transition status to 'fix_drafted'.
+
+        Returns the updated bug dict, or ``None`` if *hash_id* not found.
+        """
+        bug = await self.get_bug(hash_id)
+        if bug is None:
+            return None
+
+        now = _utcnow_iso()
+        old_status = bug["status"]
+
+        await self.db.execute(
+            """
+            UPDATE bugs
+            SET github_pr_number = ?,
+                github_pr_url = ?,
+                github_branch_name = ?,
+                status = 'fix_drafted',
+                updated_at = ?
+            WHERE hash_id = ?
+            """,
+            (pr_number, pr_url, branch_name, now, hash_id),
+        )
+        await self.db.execute(
+            """
+            INSERT INTO status_history (bug_id, old_status, new_status, changed_by, changed_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (bug["id"], old_status, "fix_drafted", changed_by, now),
+        )
+        await self.db.commit()
+        return await self.get_bug(hash_id)
+
+    async def get_bug_by_github_issue(
+        self, issue_number: int
+    ) -> dict | None:
+        """Return a bug by its GitHub *issue_number*, or ``None``."""
+        async with self.db.execute(
+            "SELECT * FROM bugs WHERE github_issue_number = ?",
+            (issue_number,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return _row_to_dict(row) if row else None
+
+    async def get_bug_by_branch_name(
+        self, branch_name: str
+    ) -> dict | None:
+        """Return a bug by its GitHub *branch_name*, or ``None``."""
+        async with self.db.execute(
+            "SELECT * FROM bugs WHERE github_branch_name = ?",
+            (branch_name,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return _row_to_dict(row) if row else None
+
+    # ------------------------------------------------------------------
     # Store-then-process entry point
     # ------------------------------------------------------------------
 

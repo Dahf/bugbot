@@ -108,12 +108,13 @@ def build_issue_body(bug: dict, guild_id: int | None = None) -> str:
 
 def build_pr_body(
     bug: dict,
-    issue_number: int,
-    discord_thread_url: str,
+    issue_number: int | None = None,
+    discord_thread_url: str | None = None,
 ) -> str:
     """Build a GitHub PR body with bug context and auto-close reference.
 
-    Includes bug summary, AI analysis, Discord link, and ``Closes #N``.
+    Includes bug summary, AI analysis, Discord link, and ``Closes #N``
+    (only when *issue_number* is provided).
     """
     hash_id = bug.get("hash_id", "unknown")
     title = bug.get("title") or "Untitled"
@@ -147,11 +148,19 @@ def build_pr_body(
             f"- **Suggested Fix:** {ai_fix}",
         ])
 
+    if discord_thread_url:
+        sections.extend([
+            "",
+            f":link: [Discord Thread]({discord_thread_url})",
+        ])
+
+    if issue_number is not None:
+        sections.extend([
+            "",
+            f"Closes #{issue_number}",
+        ])
+
     sections.extend([
-        "",
-        f":link: [Discord Thread]({discord_thread_url})",
-        "",
-        f"Closes #{issue_number}",
         "",
         "---",
         "> **Note:** This PR was scaffolded by PreserveFood BugBot. "

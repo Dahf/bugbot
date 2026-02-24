@@ -1,6 +1,7 @@
 """GitHub App API service with installation auth and rate limit handling."""
 
 import logging
+import re
 
 from githubkit import GitHub, AppAuthStrategy
 from githubkit.retry import RetryChainDecision, RetryRateLimit, RetryServerError
@@ -119,6 +120,97 @@ class GitHubService:
             "html_url": issue.html_url,
             "title": issue.title,
         }
+
+    # ------------------------------------------------------------------
+    # Branch & PR operations (Plan 03)
+    # ------------------------------------------------------------------
+
+    async def get_default_branch_sha(
+        self, owner: str, repo: str
+    ) -> tuple[str, str]:
+        """Return ``(default_branch, sha)`` for the repo's default branch.
+
+        Uses the installation client to fetch repo info and the HEAD ref.
+        """
+        gh = await self.get_installation_client(owner, repo)
+        repo_resp = await gh.rest.repos.async_get(owner, repo)
+        default_branch = repo_resp.parsed_data.default_branch
+        ref_resp = await gh.rest.git.async_get_ref(
+            owner, repo, f"heads/{default_branch}"
+        )
+        sha = ref_resp.parsed_data.object.sha
+        return (default_branch, sha)
+
+    async def create_branch(
+        self, owner: str, repo: str, branch_name: str, base_sha: str
+    ) -> None:
+        """Create a feature branch from *base_sha*.
+
+        GH-08: This ALWAYS creates a new branch -- never touches the
+        default branch.
+        """
+        gh = await self.get_installation_client(owner, repo)
+        await gh.rest.git.async_create_ref(
+            owner, repo, ref=f"refs/heads/{branch_name}", sha=base_sha
+        )
+        logger.info(
+            "Created branch %s in %s/%s from %s",
+            branch_name, owner, repo, base_sha[:8],
+        )
+
+    async def create_pull_request(
+        self,
+        owner: str,
+        repo: str,
+        title: str,
+        body: str,
+        head: str,
+        base: str,
+    ) -> dict:
+        """Create a pull request and return its ``number``, ``html_url``, ``title``."""
+        gh = await self.get_installation_client(owner, repo)
+        resp = await gh.rest.pulls.async_create(
+            owner, repo, title=title, head=head, base=base, body=body
+        )
+        pr = resp.parsed_data
+        return {
+            "number": pr.number,
+            "html_url": pr.html_url,
+            "title": pr.title,
+        }
+
+    async def delete_branch(
+        self, owner: str, repo: str, branch_name: str
+    ) -> None:
+        """Delete a branch, silently ignoring 404/422 (already gone)."""
+        gh = await self.get_installation_client(owner, repo)
+        try:
+            await gh.rest.git.async_delete_ref(
+                owner, repo, f"heads/{branch_name}"
+            )
+            logger.info(
+                "Deleted branch %s in %s/%s", branch_name, owner, repo
+            )
+        except Exception:
+            # 404 or 422 -- branch already deleted or doesn't exist
+            logger.debug(
+                "Branch %s in %s/%s already deleted or not found",
+                branch_name, owner, repo,
+            )
+
+    @staticmethod
+    def build_branch_name(hash_id: str, title: str) -> str:
+        """Build a branch name in the format ``bot/bug-{id}-{slug}``.
+
+        Slugifies the title: lowercase, replaces non-alphanumeric with
+        hyphens, collapses consecutive hyphens, strips leading/trailing
+        hyphens, and truncates to 30 characters.
+        """
+        slug = title.lower()
+        slug = re.sub(r"[^a-z0-9]+", "-", slug)
+        slug = re.sub(r"-{2,}", "-", slug)
+        slug = slug.strip("-")[:30].rstrip("-")
+        return f"bot/bug-{hash_id}-{slug}"
 
     async def close(self) -> None:
         """Close the underlying HTTP client for clean shutdown."""
