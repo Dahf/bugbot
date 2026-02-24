@@ -12,6 +12,7 @@ from src.models.bug import BugRepository
 from src.models.database import setup_database, close_database
 from src.models.github_config import GitHubConfigRepository
 from src.services.ai_analysis import AIAnalysisService
+from src.services.code_fix_service import CodeFixService
 from src.services.github_service import GitHubService
 from src.views.bug_buttons import BugActionButton
 
@@ -32,6 +33,7 @@ class BugBot(commands.Bot):
         self.ai_service: AIAnalysisService | None = None
         self.github_service: GitHubService | None = None
         self.github_config_repo: GitHubConfigRepository | None = None
+        self.code_fix_service: CodeFixService | None = None
         self.processing_queue: asyncio.Queue = asyncio.Queue()
 
     async def setup_hook(self) -> None:
@@ -83,6 +85,24 @@ class BugBot(commands.Bot):
                     ] if not val
                 ),
             )
+
+        # Initialize Code Fix service (optional -- requires both AI and GitHub)
+        if self.config.ANTHROPIC_API_KEY and self.config.github_configured:
+            self.code_fix_service = CodeFixService(
+                api_key=self.config.ANTHROPIC_API_KEY,
+                model=self.config.ANTHROPIC_CODE_FIX_MODEL,
+                max_tokens=self.config.CODE_FIX_MAX_TOKENS,
+                max_rounds=self.config.CODE_FIX_MAX_ROUNDS,
+                max_files=self.config.CODE_FIX_MAX_FILES,
+                ci_timeout=self.config.CODE_FIX_CI_TIMEOUT,
+            )
+            logger.info(
+                "Code fix service initialized (model: %s, max_rounds: %d)",
+                self.config.ANTHROPIC_CODE_FIX_MODEL,
+                self.config.CODE_FIX_MAX_ROUNDS,
+            )
+        else:
+            logger.info("Code fix service not initialized (requires AI + GitHub)")
 
         # Load cog extensions (wrap in try/except -- cogs may not exist yet)
         cog_extensions = [

@@ -10,6 +10,7 @@ from src.utils.embeds import build_summary_embed, build_analysis_embed, _get_dis
 from src.utils.github_templates import (
     build_issue_body,
     build_pr_body,
+    build_code_fix_pr_body,
     build_context_commit_content,
     build_discord_thread_url,
     get_priority_label,
@@ -441,7 +442,7 @@ class BugActionButton(
     # -- Draft Fix handler -----------------------------------------------------
 
     async def _handle_draft_fix(self, interaction: discord.Interaction) -> None:
-        """Create a feature branch and PR scaffold for the bug."""
+        """Create a feature branch, run agentic AI code fix, and open a PR."""
         # 1. Defer immediately (GitHub API calls take time)
         await interaction.response.defer(ephemeral=True)
 
@@ -484,6 +485,14 @@ class BugActionButton(
         if bot.github_service is None:
             await interaction.followup.send(
                 "GitHub integration is not configured.", ephemeral=True
+            )
+            return
+
+        # 3b. Check code fix service availability
+        if bot.code_fix_service is None:
+            await interaction.followup.send(
+                "AI code fix is not configured. Both ANTHROPIC_API_KEY and GitHub must be set.",
+                ephemeral=True,
             )
             return
 
@@ -539,73 +548,7 @@ class BugActionButton(
                     self.bug_id, exc,
                 )
 
-            # 7b. Read source files (non-fatal)
-            source_files: list[dict] = []
-            if relevant_paths:
-                try:
-                    source_files = await bot.github_service.read_repo_files(
-                        owner, repo, relevant_paths, ref=default_branch
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to read source files for bug %s: %s",
-                        self.bug_id, exc,
-                    )
-
-            # 7c. Commit context file to the branch (non-fatal)
-            try:
-                context_content = build_context_commit_content(bug, source_files)
-                await bot.github_service.commit_context_file(
-                    owner, repo, branch_name,
-                    ".bugbot/context.md",
-                    context_content,
-                    f"Add bug context for #{bug['hash_id']}",
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Failed to commit context file for bug %s: %s",
-                    self.bug_id, exc,
-                )
-
-            # 8. Build PR body
-            issue_number = bug.get("github_issue_number")
-            discord_thread_url = None
-            if bug.get("thread_id") and interaction.guild_id:
-                discord_thread_url = build_discord_thread_url(
-                    interaction.guild_id, bug["thread_id"]
-                )
-            pr_body = build_pr_body(
-                bug,
-                issue_number=issue_number,
-                discord_thread_url=discord_thread_url,
-                source_files=source_files,
-            )
-
-            # 9. Build PR title
-            pr_title = f"fix: {display_title} (#{bug['hash_id']})"
-
-            # 10. Create PR
-            pr = await bot.github_service.create_pull_request(
-                owner, repo, pr_title, pr_body, branch_name, default_branch
-            )
-
-            # 11. Store in DB
-            updated_bug = await bot.bug_repo.store_github_pr(
-                self.bug_id,
-                pr["number"],
-                pr["html_url"],
-                branch_name,
-                str(interaction.user),
-            )
-
-            # 12. Update channel embed
-            if updated_bug:
-                flags = _derive_bug_flags(updated_bug)
-                new_embed = build_summary_embed(updated_bug)
-                new_view = build_bug_view(self.bug_id, **flags)
-                await interaction.message.edit(embed=new_embed, view=new_view)
-
-            # 13. Post in thread
+            # 8. Get thread early (needed for progress messages)
             thread = interaction.message.thread
             if thread is None and bug.get("thread_id"):
                 try:
@@ -615,6 +558,90 @@ class BugActionButton(
                 except discord.HTTPException:
                     thread = None
 
+            # 9. Define progress callback for live Discord updates
+            async def post_progress(message: str):
+                if thread is not None:
+                    try:
+                        await thread.send(f"\U0001f527 {message}")
+                    except discord.HTTPException:
+                        pass
+                logger.info("Code fix progress [%s]: %s", self.bug_id, message)
+
+            # 10. Run agentic code fix service
+            await post_progress("Starting AI code fix generation...")
+            fix_result = await bot.code_fix_service.generate_fix(
+                github_service=bot.github_service,
+                owner=owner,
+                repo=repo,
+                branch=branch_name,
+                bug=bug,
+                relevant_paths=relevant_paths,
+                progress_callback=post_progress,
+            )
+
+            # 11. Handle failure
+            if not fix_result.get("success"):
+                error_msg = fix_result.get("error", "Unknown error")
+                logger.error(
+                    "Code fix generation failed for bug %s: %s",
+                    self.bug_id, error_msg,
+                )
+                if thread is not None:
+                    try:
+                        await thread.send(
+                            f"\u274c Code fix generation failed: {error_msg}"
+                        )
+                    except discord.HTTPException:
+                        pass
+                # If nothing was committed, skip PR creation
+                if not fix_result.get("changed_files"):
+                    await interaction.followup.send(
+                        f"Code fix generation failed: {error_msg}",
+                        ephemeral=True,
+                    )
+                    return
+
+            # 12. Build PR body using new code fix template
+            issue_number = bug.get("github_issue_number")
+            discord_thread_url = None
+            if bug.get("thread_id") and interaction.guild_id:
+                discord_thread_url = build_discord_thread_url(
+                    interaction.guild_id, bug["thread_id"]
+                )
+            pr_body = build_code_fix_pr_body(
+                bug,
+                issue_number=issue_number,
+                discord_thread_url=discord_thread_url,
+                process_log=fix_result.get("process_log", {}),
+                changed_files=fix_result.get("changed_files", {}),
+                validation_passed=fix_result.get("validation_passed", False),
+            )
+
+            # 13. Build PR title
+            pr_title = f"fix: {display_title} (#{bug['hash_id']})"
+
+            # 14. Create PR
+            pr = await bot.github_service.create_pull_request(
+                owner, repo, pr_title, pr_body, branch_name, default_branch
+            )
+
+            # 15. Store in DB
+            updated_bug = await bot.bug_repo.store_github_pr(
+                self.bug_id,
+                pr["number"],
+                pr["html_url"],
+                branch_name,
+                str(interaction.user),
+            )
+
+            # 16. Update channel embed
+            if updated_bug:
+                flags = _derive_bug_flags(updated_bug)
+                new_embed = build_summary_embed(updated_bug)
+                new_view = build_bug_view(self.bug_id, **flags)
+                await interaction.message.edit(embed=new_embed, view=new_view)
+
+            # 17. Post PR link in thread
             if thread is not None:
                 try:
                     await thread.send(
@@ -626,13 +653,106 @@ class BugActionButton(
                         self.bug_id,
                     )
 
-            # 14. Ephemeral confirmation
+            # 18. Post completion embed in thread
+            if thread is not None:
+                try:
+                    process_log = fix_result.get("process_log", {})
+                    total_tokens = process_log.get("total_tokens", {})
+                    changed_files = fix_result.get("changed_files", {})
+                    validation_ok = fix_result.get("validation_passed", False)
+                    rounds_taken = fix_result.get("rounds_taken", 0)
+
+                    embed_color = 0x22c55e if validation_ok else 0xeab308
+                    completion_embed = discord.Embed(
+                        title="AI Code Fix Complete",
+                        color=embed_color,
+                    )
+                    # Files changed field
+                    if changed_files:
+                        files_list = "\n".join(
+                            f"`{p}`" for p in changed_files.keys()
+                        )
+                        completion_embed.add_field(
+                            name="Files Changed",
+                            value=files_list,
+                            inline=True,
+                        )
+                    # Rounds taken field
+                    completion_embed.add_field(
+                        name="Rounds Taken",
+                        value=str(rounds_taken),
+                        inline=True,
+                    )
+                    # Validation field
+                    validation_text = (
+                        "\u2705 Passed" if validation_ok else "\u26a0\ufe0f Partial"
+                    )
+                    completion_embed.add_field(
+                        name="Validation",
+                        value=validation_text,
+                        inline=True,
+                    )
+                    # PR link field
+                    completion_embed.add_field(
+                        name="Pull Request",
+                        value=f"[{pr_title}]({pr['html_url']})",
+                        inline=False,
+                    )
+                    # If validation didn't pass, note which gates failed
+                    if not validation_ok:
+                        rounds_log = process_log.get("rounds", [])
+                        failed_gates = []
+                        for rnd in rounds_log:
+                            lint = rnd.get("lint", {})
+                            if lint and not lint.get("passed", True):
+                                failed_gates.append(
+                                    f"Lint ({lint.get('linter', 'unknown')})"
+                                )
+                            sr = rnd.get("self_review", {})
+                            if sr and not sr.get("passed", True):
+                                failed_gates.append("Self-review")
+                            ci = rnd.get("ci", {})
+                            if ci and ci.get("status") == "failed":
+                                failed_gates.append("CI")
+                        if failed_gates:
+                            unique_gates = list(dict.fromkeys(failed_gates))
+                            completion_embed.add_field(
+                                name="Failed Gates",
+                                value=", ".join(unique_gates),
+                                inline=False,
+                            )
+                    # Footer with token usage
+                    input_tok = total_tokens.get("input", 0)
+                    output_tok = total_tokens.get("output", 0)
+                    completion_embed.set_footer(
+                        text=(
+                            f"Tokens: {input_tok:,} input + "
+                            f"{output_tok:,} output = "
+                            f"{input_tok + output_tok:,} total"
+                        )
+                    )
+                    await thread.send(embed=completion_embed)
+                except discord.HTTPException:
+                    logger.warning(
+                        "Could not post completion embed in thread for bug %s",
+                        self.bug_id,
+                    )
+
+            # 19. Ephemeral confirmation
+            validation_status = (
+                "all gates passed"
+                if fix_result.get("validation_passed")
+                else "review recommended"
+            )
             await interaction.followup.send(
-                f"Draft fix PR created: {pr['html_url']}", ephemeral=True
+                f"AI code fix PR created ({validation_status}): {pr['html_url']}",
+                ephemeral=True,
             )
             logger.info(
-                "Bug %s -> PR #%s by %s",
+                "Bug %s -> AI fix PR #%s by %s (rounds: %d, validation: %s)",
                 self.bug_id, pr["number"], interaction.user,
+                fix_result.get("rounds_taken", 0),
+                fix_result.get("validation_passed", False),
             )
 
         except Exception as exc:
