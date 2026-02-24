@@ -1,5 +1,6 @@
 """GitHub App API service with installation auth and rate limit handling."""
 
+import asyncio
 import base64
 import logging
 import re
@@ -356,6 +357,171 @@ class GitHubService:
         slug = re.sub(r"-{2,}", "-", slug)
         slug = slug.strip("-")[:30].rstrip("-")
         return f"bot/bug-{hash_id}-{slug}"
+
+    # ------------------------------------------------------------------
+    # Atomic multi-file commit & CI polling (Plan 05-01)
+    # ------------------------------------------------------------------
+
+    async def commit_files_atomic(
+        self,
+        owner: str,
+        repo: str,
+        branch: str,
+        changed_files: dict[str, str],
+        commit_message: str,
+    ) -> str:
+        """Commit multiple file changes as a single atomic commit.
+
+        Uses the Git Data API (blobs, trees, commits, refs) to create one
+        commit containing all file changes -- avoids the one-commit-per-file
+        limitation of the Contents API.
+
+        *changed_files* maps relative file paths to their full content.
+        Returns the SHA of the new commit.
+        """
+        gh = await self.get_installation_client(owner, repo)
+
+        # 1. Create blobs for each changed file
+        tree_items: list[dict] = []
+        for path, content in changed_files.items():
+            blob_resp = await gh.rest.git.async_create_blob(
+                owner, repo, content=content, encoding="utf-8"
+            )
+            tree_items.append({
+                "path": path,
+                "mode": "100644",
+                "type": "blob",
+                "sha": blob_resp.parsed_data.sha,
+            })
+
+        # 2. Get current branch HEAD SHA
+        ref_resp = await gh.rest.git.async_get_ref(
+            owner, repo, f"heads/{branch}"
+        )
+        head_sha = ref_resp.parsed_data.object_.sha
+
+        # 3. Get current commit's tree SHA (base tree)
+        commit_resp = await gh.rest.git.async_get_commit(owner, repo, head_sha)
+        base_tree_sha = commit_resp.parsed_data.tree.sha
+
+        # 4. Create new tree with file changes
+        tree_resp = await gh.rest.git.async_create_tree(
+            owner, repo, tree=tree_items, base_tree=base_tree_sha
+        )
+
+        # 5. Create commit
+        new_commit_resp = await gh.rest.git.async_create_commit(
+            owner, repo,
+            tree=tree_resp.parsed_data.sha,
+            message=commit_message,
+            parents=[head_sha],
+        )
+        new_commit_sha = new_commit_resp.parsed_data.sha
+
+        # 6. Update branch ref to point to new commit
+        await gh.rest.git.async_update_ref(
+            owner, repo, f"heads/{branch}", sha=new_commit_sha
+        )
+
+        logger.info(
+            "Atomic commit %s on %s/%s branch %s (%d files)",
+            new_commit_sha[:8], owner, repo, branch, len(changed_files),
+        )
+        return new_commit_sha
+
+    async def poll_ci_status(
+        self,
+        owner: str,
+        repo: str,
+        ref: str,
+        timeout: int = 300,
+        poll_interval: int = 15,
+        initial_delay: int = 15,
+    ) -> dict:
+        """Poll GitHub Checks API until all check runs complete or timeout.
+
+        Waits *initial_delay* seconds before the first poll (allows GitHub
+        Actions to register check runs after a push).
+
+        Returns a dict with ``status`` and ``details`` keys:
+        - ``{"status": "passed", "details": "All N checks passed"}``
+        - ``{"status": "failed", "details": "- name: conclusion\\n..."}``
+        - ``{"status": "no_ci", "details": "No CI pipeline detected"}``
+        - ``{"status": "timeout", "details": "CI did not complete within Ns"}``
+        """
+        gh = await self.get_installation_client(owner, repo)
+
+        # Initial delay to let GitHub Actions register check runs
+        await asyncio.sleep(initial_delay)
+
+        elapsed = 0
+        first_poll = True
+        while elapsed < timeout:
+            resp = await gh.rest.checks.async_list_for_ref(owner, repo, ref)
+            check_runs = resp.parsed_data.check_runs
+            total = resp.parsed_data.total_count
+
+            if total == 0:
+                if first_poll:
+                    # Second chance: wait one more interval and retry
+                    first_poll = False
+                    await asyncio.sleep(poll_interval)
+                    elapsed += poll_interval
+                    continue
+                return {
+                    "status": "no_ci",
+                    "details": "No CI pipeline detected",
+                }
+
+            first_poll = False
+
+            all_complete = all(
+                cr.status == "completed" for cr in check_runs
+            )
+            if all_complete:
+                failures = [
+                    cr for cr in check_runs
+                    if cr.conclusion not in ("success", "neutral", "skipped")
+                ]
+                if failures:
+                    details = "\n".join(
+                        f"- {cr.name}: {cr.conclusion}" for cr in failures
+                    )
+                    return {"status": "failed", "details": details}
+                return {
+                    "status": "passed",
+                    "details": f"All {total} checks passed",
+                }
+
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        return {
+            "status": "timeout",
+            "details": f"CI did not complete within {timeout}s",
+        }
+
+    async def get_installation_token(self, owner: str, repo: str) -> str:
+        """Get a raw installation access token for git CLI operations.
+
+        Returns a token string suitable for use in git clone URLs:
+        ``https://x-access-token:{token}@github.com/owner/repo.git``
+
+        The token is short-lived (~1 hour). Get a fresh token immediately
+        before any git CLI operation.
+        """
+        # Get the installation ID for this repo
+        resp = await self.app_github.rest.apps.async_get_repo_installation(
+            owner, repo
+        )
+        installation_id = resp.parsed_data.id
+
+        # Create an installation access token
+        token_resp = (
+            await self.app_github.rest.apps
+            .async_create_installation_access_token(installation_id)
+        )
+        return token_resp.parsed_data.token
 
     async def close(self) -> None:
         """Close the underlying HTTP client for clean shutdown."""
