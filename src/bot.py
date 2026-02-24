@@ -71,7 +71,18 @@ class BugBot(commands.Bot):
             self.github_config_repo = GitHubConfigRepository(self.db)
             logger.info("GitHub integration initialized")
         else:
-            logger.warning("GitHub App not configured -- GitHub integration disabled")
+            logger.warning(
+                "GitHub App not configured -- GitHub integration disabled. "
+                "Missing: %s",
+                ", ".join(
+                    name for name, val in [
+                        ("GITHUB_APP_ID", self.config.GITHUB_APP_ID),
+                        ("GITHUB_PRIVATE_KEY", self.config.GITHUB_PRIVATE_KEY),
+                        ("GITHUB_CLIENT_ID", self.config.GITHUB_CLIENT_ID),
+                        ("GITHUB_CLIENT_SECRET", self.config.GITHUB_CLIENT_SECRET),
+                    ] if not val
+                ),
+            )
 
         # Load cog extensions (wrap in try/except -- cogs may not exist yet)
         cog_extensions = [
