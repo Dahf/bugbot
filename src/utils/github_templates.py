@@ -106,15 +106,82 @@ def build_issue_body(bug: dict, guild_id: int | None = None) -> str:
     return "\n".join(sections)
 
 
+def build_context_commit_content(bug: dict, source_files: list[dict]) -> str:
+    """Build the markdown content for the ``.bugbot/context.md`` commit.
+
+    This file is committed to the feature branch to give external tools
+    (Copilot, BugBot) and reviewers full context about the bug and
+    the relevant source code.
+
+    Each source file snippet is limited to the first 200 lines to keep
+    the commit size manageable.
+    """
+    hash_id = bug.get("hash_id", "unknown")
+    title = bug.get("title") or "Untitled"
+    description = bug.get("description") or "No description provided"
+    severity = bug.get("severity") or "N/A"
+    ai_root_cause = bug.get("ai_root_cause") or "N/A"
+    ai_area = bug.get("ai_affected_area") or "N/A"
+    ai_fix = bug.get("ai_suggested_fix") or "N/A"
+
+    sections = [
+        f"# Bug Context: #{hash_id}",
+        "",
+        "## Bug Report",
+        f"**Title:** {title}",
+        f"**Description:** {description}",
+        f"**Severity:** {severity}",
+        "",
+        "## AI Analysis",
+        f"- **Root Cause:** {ai_root_cause}",
+        f"- **Affected Area:** {ai_area}",
+        f"- **Suggested Fix:** {ai_fix}",
+        "",
+        "## Relevant Source Files",
+    ]
+
+    if not source_files:
+        sections.append("")
+        sections.append("No relevant source files identified from repository.")
+    else:
+        for sf in source_files:
+            path = sf["path"]
+            content = sf["content"]
+            # Determine file extension for syntax highlighting
+            dot_idx = path.rfind(".")
+            ext = path[dot_idx + 1:] if dot_idx != -1 else ""
+            # Limit to first 200 lines
+            lines = content.splitlines()
+            if len(lines) > 200:
+                snippet = "\n".join(lines[:200])
+                truncation_note = f"\n\n_(truncated -- showing first 200 of {len(lines)} lines)_"
+            else:
+                snippet = content
+                truncation_note = ""
+
+            sections.extend([
+                "",
+                f"### {path}",
+                f"```{ext}",
+                snippet,
+                "```",
+            ])
+            if truncation_note:
+                sections.append(truncation_note)
+
+    return "\n".join(sections)
+
+
 def build_pr_body(
     bug: dict,
     issue_number: int | None = None,
     discord_thread_url: str | None = None,
+    source_files: list[dict] | None = None,
 ) -> str:
     """Build a GitHub PR body with bug context and auto-close reference.
 
-    Includes bug summary, AI analysis, Discord link, and ``Closes #N``
-    (only when *issue_number* is provided).
+    Includes bug summary, AI analysis, Discord link, optional source file
+    references, and ``Closes #N`` (only when *issue_number* is provided).
     """
     hash_id = bug.get("hash_id", "unknown")
     title = bug.get("title") or "Untitled"
@@ -148,6 +215,18 @@ def build_pr_body(
             f"- **Suggested Fix:** {ai_fix}",
         ])
 
+    # Relevant source files section (if identified)
+    if source_files:
+        sections.extend([
+            "",
+            "### Relevant Source Files",
+        ])
+        for sf in source_files:
+            path = sf["path"]
+            size = sf.get("size", 0)
+            line_count = sf.get("content", "").count("\n") + 1 if sf.get("content") else 0
+            sections.append(f"- `{path}` ({line_count} lines)")
+
     if discord_thread_url:
         sections.extend([
             "",
@@ -164,6 +243,8 @@ def build_pr_body(
         "",
         "---",
         "> **Note:** This PR was scaffolded by PreserveFood BugBot. "
+        "A `.bugbot/context.md` file has been committed to this branch "
+        "with full source context for the bug. "
         "Actual code changes may be provided by an external tool "
         "(e.g., GitHub Copilot, BugBot).",
     ])

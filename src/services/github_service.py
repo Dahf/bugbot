@@ -1,5 +1,6 @@
 """GitHub App API service with installation auth and rate limit handling."""
 
+import base64
 import logging
 import re
 
@@ -197,6 +198,150 @@ class GitHubService:
                 "Branch %s in %s/%s already deleted or not found",
                 branch_name, owner, repo,
             )
+
+    # ------------------------------------------------------------------
+    # Source file reading & context commit operations (Plan 04)
+    # ------------------------------------------------------------------
+
+    # Allowed source code extensions for identify_relevant_files
+    _SOURCE_EXTENSIONS = frozenset({
+        ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".kt", ".swift",
+        ".dart", ".go", ".rs", ".c", ".cpp", ".h", ".rb", ".php",
+        ".cs", ".vue", ".svelte",
+    })
+
+    _MAX_FILE_SIZE = 50 * 1024  # 50 KB
+
+    async def read_repo_files(
+        self,
+        owner: str,
+        repo: str,
+        file_paths: list[str],
+        ref: str | None = None,
+    ) -> list[dict]:
+        """Read files from a GitHub repo and return their decoded contents.
+
+        For each path, fetches the file via the Contents API, base64-decodes
+        the content, and returns a list of dicts with ``path``, ``content``,
+        ``size``, and ``truncated`` keys.  Files that are larger than 50 KB
+        are truncated.  Missing or inaccessible files are silently skipped.
+        """
+        if not file_paths:
+            return []
+
+        gh = await self.get_installation_client(owner, repo)
+        results: list[dict] = []
+
+        for path in file_paths:
+            try:
+                kwargs: dict = {"owner": owner, "repo": repo, "path": path}
+                if ref:
+                    kwargs["ref"] = ref
+                resp = await gh.rest.repos.async_get_content(**kwargs)
+                data = resp.parsed_data
+
+                # async_get_content returns a union; file objects have .content
+                raw_content: str = data.content  # type: ignore[union-attr]
+                decoded = base64.b64decode(raw_content).decode("utf-8")
+                file_size = len(decoded.encode("utf-8"))
+                truncated = file_size > self._MAX_FILE_SIZE
+
+                if truncated:
+                    decoded = decoded[: self._MAX_FILE_SIZE]
+
+                results.append({
+                    "path": path,
+                    "content": decoded,
+                    "size": file_size,
+                    "truncated": truncated,
+                })
+            except Exception as exc:
+                logger.warning(
+                    "Could not read %s from %s/%s: %s", path, owner, repo, exc
+                )
+                continue
+
+        return results
+
+    async def commit_context_file(
+        self,
+        owner: str,
+        repo: str,
+        branch_name: str,
+        file_path: str,
+        content: str,
+        message: str,
+    ) -> None:
+        """Commit a single file to an existing branch.
+
+        The file content is base64-encoded before sending to the API.
+        This writes to the feature branch only -- never the default branch
+        (GH-08 preserved).
+        """
+        gh = await self.get_installation_client(owner, repo)
+        b64_content = base64.b64encode(content.encode("utf-8")).decode("ascii")
+
+        await gh.rest.repos.async_create_or_update_file_contents(
+            owner,
+            repo,
+            file_path,
+            message=message,
+            content=b64_content,
+            branch=branch_name,
+        )
+        logger.info(
+            "Committed %s to branch %s in %s/%s",
+            file_path, branch_name, owner, repo,
+        )
+
+    async def identify_relevant_files(
+        self,
+        owner: str,
+        repo: str,
+        ai_affected_area: str,
+        ref: str | None = None,
+    ) -> list[str]:
+        """Identify source files relevant to an AI-identified affected area.
+
+        Uses the repo's file tree and keyword overlap scoring to return
+        up to 5 likely-relevant file paths, sorted by relevance.  This is
+        a simple heuristic -- not full RAG indexing.
+        """
+        if not ai_affected_area:
+            return []
+
+        gh = await self.get_installation_client(owner, repo)
+        tree_resp = await gh.rest.git.async_get_tree(
+            owner, repo, ref or "HEAD", recursive="true"
+        )
+        tree = tree_resp.parsed_data.tree
+
+        # Build keyword set from the affected area description
+        keywords = set(ai_affected_area.lower().split())
+
+        scored: list[tuple[str, int]] = []
+        for item in tree:
+            # Skip directories and non-source files
+            if item.type != "blob":
+                continue
+            path: str = item.path
+            # Check extension
+            dot_idx = path.rfind(".")
+            if dot_idx == -1:
+                continue
+            ext = path[dot_idx:]
+            if ext not in self._SOURCE_EXTENSIONS:
+                continue
+
+            # Score by keyword overlap with full lowercase path
+            path_lower = path.lower()
+            score = sum(1 for kw in keywords if kw in path_lower)
+            if score > 0:
+                scored.append((path, score))
+
+        # Sort by score descending, take top 5
+        scored.sort(key=lambda t: t[1], reverse=True)
+        return [path for path, _ in scored[:5]]
 
     @staticmethod
     def build_branch_name(hash_id: str, title: str) -> str:
