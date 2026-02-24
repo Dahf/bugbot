@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** Bug reports that arrive in Discord get triaged, tracked, and fixed with minimal manual effort
-**Current focus:** Phase 3 complete -- ready for Phase 4
+**Current focus:** Phase 3 complete (including gap closure) -- ready for Phase 4
 
 ## Current Position
 
 Phase: 3 of 4 (GitHub Integration) -- COMPLETE
-Plan: 3 of 3 in current phase (03-03 complete)
+Plan: 4 of 4 in current phase (03-04 complete -- gap closure)
 Status: Phase Complete
-Last activity: 2026-02-24 -- Completed 03-03-PLAN.md (Draft Fix button and webhook event handlers)
+Last activity: 2026-02-24 -- Completed 03-04-PLAN.md (Gap closure: source file reading, context commits, enriched PRs)
 
-Progress: [████████░░] 78%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
-- Average duration: ~12 min
-- Total execution time: ~1.4 hours
+- Total plans completed: 8
+- Average duration: ~11 min
+- Total execution time: ~1.5 hours
 
 **By Phase:**
 
@@ -29,14 +29,15 @@ Progress: [████████░░] 78%
 |-------|-------|-------|----------|
 | 01-foundation-and-ingestion | 2 | ~45 min | ~23 min |
 | 02-ai-analysis | 2 | 14 min | 7 min |
-| 03-github-integration | 3 | 21 min | 7 min |
+| 03-github-integration | 4 | 24 min | 6 min |
 
 **Recent Trend:**
-- Last 5 plans: 8 min, 7 min, 7 min, 7 min, 7 min
-- Trend: Consistent 7 min avg for Phase 2-3 service layers and integration
+- Last 5 plans: 7 min, 7 min, 7 min, 7 min, 3 min
+- Trend: Consistent 7 min avg for Phase 2-3; gap closure plans faster at 3 min
 
 *Updated after each plan completion*
 | Phase 03 P03 | 7min | 2 tasks | 6 files |
+| Phase 03 P04 | 3min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,10 @@ Recent decisions affecting current work:
 - [03-03]: build_pr_body handles optional issue_number -- Closes #N only when issue exists
 - [03-03]: _derive_bug_flags helper centralises status-to-flag mapping for all build_bug_view callers
 - [03-03]: Webhook handlers use non-blocking Discord operations (errors logged, 200 returned to GitHub)
+- [03-04]: Keyword overlap scoring for file identification -- simple heuristic, not full RAG
+- [03-04]: Context file committed at .bugbot/context.md on feature branch (namespaced directory)
+- [03-04]: Each new Draft Fix step (7a, 7b, 7c) individually try/except wrapped for graceful degradation
+- [03-04]: Source file snippets limited to 200 lines in context commit, 50KB max per file in read_repo_files
 
 ### Pending Todos
 
@@ -91,5 +96,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 03-03-PLAN.md (Draft Fix button and webhook event handlers) -- Phase 3 COMPLETE (3/3 plans)
+Stopped at: Completed 03-04-PLAN.md (Gap closure: source file reading, context commits, enriched PRs) -- Phase 3 COMPLETE (4/4 plans)
 Resume file: None
