@@ -1,4 +1,4 @@
-"""GitHub integration cog -- /init slash command for GitHub App setup."""
+"""GitHub integration cog -- /init command and webhook event handlers."""
 
 import asyncio
 import logging
@@ -6,6 +6,9 @@ import logging
 import discord
 from discord import app_commands
 from discord.ext import commands
+
+from src.utils.embeds import build_summary_embed
+from src.views.bug_buttons import build_bug_view, _derive_bug_flags
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +45,182 @@ class RepoSelectView(discord.ui.View):
 
 
 class GitHubIntegration(commands.Cog):
-    """Handles the /init slash command for connecting a GitHub repo."""
+    """Handles /init slash command and GitHub webhook event processing."""
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+
+    # ------------------------------------------------------------------
+    # Webhook event handling
+    # ------------------------------------------------------------------
+
+    async def handle_github_event(
+        self, event_name: str, payload: dict
+    ) -> None:
+        """Route a GitHub webhook event to the appropriate handler."""
+        if event_name == "pull_request":
+            await self.handle_pull_request_event(payload)
+        elif event_name == "installation":
+            logger.info(
+                "GitHub installation event: action=%s",
+                payload.get("action"),
+            )
+        else:
+            logger.debug("Ignoring GitHub event: %s", event_name)
+
+    async def handle_pull_request_event(self, payload: dict) -> None:
+        """Handle pull_request webhook events (merge, close, review_requested)."""
+        action = payload.get("action", "")
+        pr_data = payload.get("pull_request", {})
+        pr_number = pr_data.get("number")
+        pr_url = pr_data.get("html_url", "")
+        head_branch = pr_data.get("head", {}).get("ref", "")
+        merged = pr_data.get("merged", False)
+        repo_data = payload.get("repository", {})
+        owner = repo_data.get("owner", {}).get("login", "")
+        repo = repo_data.get("name", "")
+
+        # Look up the bug by branch name
+        bug = await self.bot.bug_repo.get_bug_by_branch_name(head_branch)
+        if bug is None:
+            logger.debug(
+                "PR #%s branch %s has no matching bug -- not from our bot",
+                pr_number, head_branch,
+            )
+            return
+
+        hash_id = bug["hash_id"]
+
+        if action == "closed" and merged:
+            # PR merged -> auto-resolve the bug!
+            logger.info(
+                "PR #%s merged for bug %s -- auto-resolving",
+                pr_number, hash_id,
+            )
+            await self.bot.bug_repo.update_status(
+                hash_id, "resolved", "github-webhook"
+            )
+
+            # Delete the branch (GH-10 cleanup)
+            if self.bot.github_service and owner and repo:
+                try:
+                    await self.bot.github_service.delete_branch(
+                        owner, repo, head_branch
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to delete branch %s after merge", head_branch
+                    )
+
+            # Update Discord embed and post thread notification
+            await self._update_discord_embed(bug)
+            await self._post_thread_message(
+                bug,
+                f"PR #{pr_number} has been merged! Bug resolved.",
+            )
+
+        elif action == "closed" and not merged:
+            # PR closed without merge -- notify but don't change status
+            logger.info(
+                "PR #%s closed without merging for bug %s", pr_number, hash_id
+            )
+            await self._post_thread_message(
+                bug,
+                f"PR #{pr_number} was closed without merging.",
+            )
+
+        elif action == "review_requested":
+            logger.info(
+                "Review requested on PR #%s for bug %s", pr_number, hash_id
+            )
+            await self._post_thread_message(
+                bug,
+                f"Review requested on PR #{pr_number}.",
+            )
+
+    async def _update_discord_embed(self, bug: dict) -> None:
+        """Fetch the Discord message for a bug and update embed + buttons.
+
+        Non-blocking: logs errors instead of raising so the webhook handler
+        always returns 200 to GitHub.
+        """
+        try:
+            # Refetch the bug to get the latest state after status update
+            updated_bug = await self.bot.bug_repo.get_bug(bug["hash_id"])
+            if updated_bug is None:
+                return
+
+            channel_id = updated_bug.get("channel_id")
+            message_id = updated_bug.get("message_id")
+            if not channel_id or not message_id:
+                logger.debug(
+                    "Bug %s has no channel/message refs -- skipping embed update",
+                    bug["hash_id"],
+                )
+                return
+
+            channel = self.bot.get_channel(channel_id)
+            if channel is None:
+                try:
+                    channel = await self.bot.fetch_channel(channel_id)
+                except discord.HTTPException:
+                    logger.warning(
+                        "Could not fetch channel %s for bug %s",
+                        channel_id, bug["hash_id"],
+                    )
+                    return
+
+            try:
+                message = await channel.fetch_message(message_id)
+            except discord.HTTPException:
+                logger.warning(
+                    "Could not fetch message %s for bug %s",
+                    message_id, bug["hash_id"],
+                )
+                return
+
+            new_embed = build_summary_embed(updated_bug)
+            flags = _derive_bug_flags(updated_bug)
+            new_view = build_bug_view(updated_bug["hash_id"], **flags)
+            await message.edit(embed=new_embed, view=new_view)
+
+        except Exception:
+            logger.exception(
+                "Failed to update Discord embed for bug %s", bug["hash_id"]
+            )
+
+    async def _post_thread_message(
+        self, bug: dict, content: str
+    ) -> None:
+        """Post a message in the bug's Discord thread.
+
+        Non-blocking: logs errors instead of raising.
+        """
+        try:
+            thread_id = bug.get("thread_id")
+            if not thread_id:
+                return
+
+            thread = self.bot.get_channel(thread_id)
+            if thread is None:
+                try:
+                    thread = await self.bot.fetch_channel(thread_id)
+                except discord.HTTPException:
+                    logger.warning(
+                        "Could not fetch thread %s for bug %s",
+                        thread_id, bug["hash_id"],
+                    )
+                    return
+
+            await thread.send(content)
+        except Exception:
+            logger.exception(
+                "Failed to post thread message for bug %s", bug["hash_id"]
+            )
+
+    # ------------------------------------------------------------------
+    # /init slash command
+    # ------------------------------------------------------------------
 
     @app_commands.command(
         name="init",

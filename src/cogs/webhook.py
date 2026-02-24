@@ -8,14 +8,20 @@ from discord.ext import commands
 
 from src.utils.webhook_auth import validate_webhook_signature
 
+try:
+    from githubkit.webhooks import verify as gh_verify_signature
+except ImportError:
+    gh_verify_signature = None
+
 logger = logging.getLogger(__name__)
 
 
 class WebhookServer(commands.Cog):
-    """Runs an aiohttp web server that receives Supabase webhook POSTs.
+    """Runs an aiohttp web server that receives Supabase and GitHub webhook POSTs.
 
     Routes:
         POST /webhook/bug-report -- validate HMAC, store payload, queue for processing
+        POST /webhook/github     -- validate signature, dispatch to GitHubIntegration cog
         GET  /health             -- liveness check with queue depth
     """
 
@@ -28,6 +34,7 @@ class WebhookServer(commands.Cog):
         """Start the aiohttp web server when the cog is loaded."""
         app = web.Application()
         app.router.add_post("/webhook/bug-report", self.handle_webhook)
+        app.router.add_post("/webhook/github", self.handle_github_webhook)
         app.router.add_get("/health", self.health_check)
 
         self.runner = web.AppRunner(app)
@@ -96,6 +103,80 @@ class WebhookServer(commands.Cog):
 
         except Exception:
             logger.exception("Unexpected error handling webhook")
+            return web.json_response(
+                {"error": "Internal server error"}, status=500
+            )
+
+    async def handle_github_webhook(
+        self, request: web.Request
+    ) -> web.Response:
+        """Receive a GitHub webhook, validate signature, dispatch to cog.
+
+        Uses GITHUB_WEBHOOK_SECRET (separate from the Supabase WEBHOOK_SECRET
+        per Pitfall 5 in RESEARCH.md).
+        """
+        try:
+            raw_body = await request.read()
+
+            # 1. Check GITHUB_WEBHOOK_SECRET is configured
+            gh_secret = getattr(self.bot.config, "GITHUB_WEBHOOK_SECRET", None)
+            if not gh_secret:
+                logger.warning("GitHub webhook received but GITHUB_WEBHOOK_SECRET not set")
+                return web.json_response(
+                    {"error": "GitHub webhook not configured"}, status=500
+                )
+
+            # 2. Validate signature
+            signature = request.headers.get("X-Hub-Signature-256", "")
+            if not signature:
+                logger.warning("GitHub webhook rejected: missing signature header")
+                return web.json_response(
+                    {"error": "Missing signature"}, status=401
+                )
+
+            if gh_verify_signature is None:
+                logger.error("githubkit.webhooks.verify not available")
+                return web.json_response(
+                    {"error": "Server misconfigured"}, status=500
+                )
+
+            try:
+                gh_verify_signature(gh_secret, raw_body, signature)
+            except Exception:
+                logger.warning("GitHub webhook rejected: invalid signature")
+                return web.json_response(
+                    {"error": "Invalid signature"}, status=401
+                )
+
+            # 3. Parse event
+            event_name = request.headers.get("X-GitHub-Event", "unknown")
+            try:
+                payload = json.loads(raw_body)
+            except (json.JSONDecodeError, ValueError) as exc:
+                logger.warning("GitHub webhook: invalid JSON -- %s", exc)
+                return web.json_response(
+                    {"error": "Invalid JSON body"}, status=400
+                )
+
+            # 4. Dispatch to GitHubIntegration cog
+            github_cog = self.bot.get_cog("GitHubIntegration")
+            if github_cog is not None:
+                try:
+                    await github_cog.handle_github_event(event_name, payload)
+                except Exception:
+                    logger.exception(
+                        "Error handling GitHub %s event", event_name
+                    )
+            else:
+                logger.debug(
+                    "GitHubIntegration cog not loaded, ignoring %s event",
+                    event_name,
+                )
+
+            return web.json_response({"status": "ok"}, status=200)
+
+        except Exception:
+            logger.exception("Unexpected error handling GitHub webhook")
             return web.json_response(
                 {"error": "Internal server error"}, status=500
             )
