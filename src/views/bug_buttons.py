@@ -6,6 +6,7 @@ import re
 import anthropic
 import discord
 
+from src.services.copilot_fix_service import CopilotFixService
 from src.utils.embeds import build_summary_embed, build_analysis_embed, _get_display_title
 from src.utils.github_templates import (
     build_issue_body,
@@ -491,10 +492,12 @@ class BugActionButton(
         # 3b. Check code fix service availability
         if bot.code_fix_service is None:
             await interaction.followup.send(
-                "AI code fix is not configured. Both ANTHROPIC_API_KEY and GitHub must be set.",
+                "AI code fix is not configured. Check CODE_FIX_MODE and required credentials.",
                 ephemeral=True,
             )
             return
+
+        is_copilot = isinstance(bot.code_fix_service, CopilotFixService)
 
         # 4. Get guild config
         config = await bot.github_config_repo.get_config(interaction.guild_id)
@@ -509,32 +512,40 @@ class BugActionButton(
         branch_name = None
 
         try:
-            # 5. Build branch name
             display_title = _get_display_title(bug)
-            branch_name = bot.github_service.build_branch_name(
-                bug["hash_id"], display_title
-            )
 
-            # 6. Get default branch SHA
-            default_branch, base_sha = (
-                await bot.github_service.get_default_branch_sha(owner, repo)
-            )
-
-            # 7. Create branch (GH-08: always a feature branch, never default)
-            try:
-                await bot.github_service.create_branch(
-                    owner, repo, branch_name, base_sha
+            if is_copilot:
+                # Copilot mode: skip branch creation (Copilot creates its own)
+                branch_name = None
+                default_branch, _ = (
+                    await bot.github_service.get_default_branch_sha(owner, repo)
                 )
-            except Exception as branch_exc:
-                # 422 = ref already exists
-                if "422" in str(branch_exc) or "Reference already exists" in str(branch_exc):
-                    await interaction.followup.send(
-                        f"Branch `{branch_name}` already exists. "
-                        "This bug may already have a draft fix.",
-                        ephemeral=True,
+            else:
+                # 5. Build branch name
+                branch_name = bot.github_service.build_branch_name(
+                    bug["hash_id"], display_title
+                )
+
+                # 6. Get default branch SHA
+                default_branch, base_sha = (
+                    await bot.github_service.get_default_branch_sha(owner, repo)
+                )
+
+                # 7. Create branch (GH-08: always a feature branch, never default)
+                try:
+                    await bot.github_service.create_branch(
+                        owner, repo, branch_name, base_sha
                     )
-                    return
-                raise
+                except Exception as branch_exc:
+                    # 422 = ref already exists
+                    if "422" in str(branch_exc) or "Reference already exists" in str(branch_exc):
+                        await interaction.followup.send(
+                            f"Branch `{branch_name}` already exists. "
+                            "This bug may already have a draft fix.",
+                            ephemeral=True,
+                        )
+                        return
+                    raise
 
             # 7a. Identify relevant source files (non-fatal)
             relevant_paths: list[str] = []
@@ -567,13 +578,16 @@ class BugActionButton(
                         pass
                 logger.info("Code fix progress [%s]: %s", self.bug_id, message)
 
-            # 10. Run agentic code fix service
-            await post_progress("Starting AI code fix generation...")
+            # 10. Run code fix service (anthropic or copilot)
+            await post_progress(
+                "Starting Copilot code fix..." if is_copilot
+                else "Starting AI code fix generation..."
+            )
             fix_result = await bot.code_fix_service.generate_fix(
                 github_service=bot.github_service,
                 owner=owner,
                 repo=repo,
-                branch=branch_name,
+                branch=branch_name or "",
                 bug=bug,
                 relevant_paths=relevant_paths,
                 progress_callback=post_progress,
@@ -601,29 +615,32 @@ class BugActionButton(
                     )
                     return
 
-            # 12. Build PR body using new code fix template
-            issue_number = bug.get("github_issue_number")
-            discord_thread_url = None
-            if bug.get("thread_id") and interaction.guild_id:
-                discord_thread_url = build_discord_thread_url(
-                    interaction.guild_id, bug["thread_id"]
+            # 12-14. PR creation (mode-dependent)
+            if is_copilot and fix_result.get("copilot_pr"):
+                # Copilot already created the PR
+                pr = fix_result["copilot_pr"]
+                pr_title = pr.get("title", f"fix: {display_title}")
+                branch_name = pr.get("branch", "copilot/unknown")
+            else:
+                # Anthropic mode: build PR body and create it ourselves
+                issue_number = bug.get("github_issue_number")
+                discord_thread_url = None
+                if bug.get("thread_id") and interaction.guild_id:
+                    discord_thread_url = build_discord_thread_url(
+                        interaction.guild_id, bug["thread_id"]
+                    )
+                pr_body = build_code_fix_pr_body(
+                    bug,
+                    issue_number=issue_number,
+                    discord_thread_url=discord_thread_url,
+                    process_log=fix_result.get("process_log", {}),
+                    changed_files=fix_result.get("changed_files", {}),
+                    validation_passed=fix_result.get("validation_passed", False),
                 )
-            pr_body = build_code_fix_pr_body(
-                bug,
-                issue_number=issue_number,
-                discord_thread_url=discord_thread_url,
-                process_log=fix_result.get("process_log", {}),
-                changed_files=fix_result.get("changed_files", {}),
-                validation_passed=fix_result.get("validation_passed", False),
-            )
-
-            # 13. Build PR title
-            pr_title = f"fix: {display_title} (#{bug['hash_id']})"
-
-            # 14. Create PR
-            pr = await bot.github_service.create_pull_request(
-                owner, repo, pr_title, pr_body, branch_name, default_branch
-            )
+                pr_title = f"fix: {display_title} (#{bug['hash_id']})"
+                pr = await bot.github_service.create_pull_request(
+                    owner, repo, pr_title, pr_body, branch_name, default_branch
+                )
 
             # 15. Store in DB
             updated_bug = await bot.bug_repo.store_github_pr(
@@ -656,81 +673,94 @@ class BugActionButton(
             # 18. Post completion embed in thread
             if thread is not None:
                 try:
-                    process_log = fix_result.get("process_log", {})
-                    total_tokens = process_log.get("total_tokens", {})
-                    changed_files = fix_result.get("changed_files", {})
-                    validation_ok = fix_result.get("validation_passed", False)
-                    rounds_taken = fix_result.get("rounds_taken", 0)
-
-                    embed_color = 0x22c55e if validation_ok else 0xeab308
-                    completion_embed = discord.Embed(
-                        title="AI Code Fix Complete",
-                        color=embed_color,
-                    )
-                    # Files changed field
-                    if changed_files:
-                        files_list = "\n".join(
-                            f"`{p}`" for p in changed_files.keys()
+                    if is_copilot:
+                        completion_embed = discord.Embed(
+                            title="Copilot Code Fix Complete",
+                            color=0x22c55e,
                         )
                         completion_embed.add_field(
-                            name="Files Changed",
-                            value=files_list,
+                            name="Mode",
+                            value="GitHub Copilot Agent",
                             inline=True,
                         )
-                    # Rounds taken field
-                    completion_embed.add_field(
-                        name="Rounds Taken",
-                        value=str(rounds_taken),
-                        inline=True,
-                    )
-                    # Validation field
-                    validation_text = (
-                        "\u2705 Passed" if validation_ok else "\u26a0\ufe0f Partial"
-                    )
-                    completion_embed.add_field(
-                        name="Validation",
-                        value=validation_text,
-                        inline=True,
-                    )
-                    # PR link field
-                    completion_embed.add_field(
-                        name="Pull Request",
-                        value=f"[{pr_title}]({pr['html_url']})",
-                        inline=False,
-                    )
-                    # If validation didn't pass, note which gates failed
-                    if not validation_ok:
-                        rounds_log = process_log.get("rounds", [])
-                        failed_gates = []
-                        for rnd in rounds_log:
-                            lint = rnd.get("lint", {})
-                            if lint and not lint.get("passed", True):
-                                failed_gates.append(
-                                    f"Lint ({lint.get('linter', 'unknown')})"
-                                )
-                            sr = rnd.get("self_review", {})
-                            if sr and not sr.get("passed", True):
-                                failed_gates.append("Self-review")
-                            ci = rnd.get("ci", {})
-                            if ci and ci.get("status") == "failed":
-                                failed_gates.append("CI")
-                        if failed_gates:
-                            unique_gates = list(dict.fromkeys(failed_gates))
-                            completion_embed.add_field(
-                                name="Failed Gates",
-                                value=", ".join(unique_gates),
-                                inline=False,
-                            )
-                    # Footer with token usage
-                    input_tok = total_tokens.get("input", 0)
-                    output_tok = total_tokens.get("output", 0)
-                    completion_embed.set_footer(
-                        text=(
-                            f"Tokens: {input_tok:,} input + "
-                            f"{output_tok:,} output = "
-                            f"{input_tok + output_tok:,} total"
+                        completion_embed.add_field(
+                            name="Pull Request",
+                            value=f"[{pr_title}]({pr['html_url']})",
+                            inline=False,
                         )
-                    )
+                        completion_embed.set_footer(
+                            text="Fix generated by GitHub Copilot coding agent"
+                        )
+                    else:
+                        process_log = fix_result.get("process_log", {})
+                        total_tokens = process_log.get("total_tokens", {})
+                        changed_files = fix_result.get("changed_files", {})
+                        validation_ok = fix_result.get("validation_passed", False)
+                        rounds_taken = fix_result.get("rounds_taken", 0)
+
+                        embed_color = 0x22c55e if validation_ok else 0xeab308
+                        completion_embed = discord.Embed(
+                            title="AI Code Fix Complete",
+                            color=embed_color,
+                        )
+                        if changed_files:
+                            files_list = "\n".join(
+                                f"`{p}`" for p in changed_files.keys()
+                            )
+                            completion_embed.add_field(
+                                name="Files Changed",
+                                value=files_list,
+                                inline=True,
+                            )
+                        completion_embed.add_field(
+                            name="Rounds Taken",
+                            value=str(rounds_taken),
+                            inline=True,
+                        )
+                        validation_text = (
+                            "\u2705 Passed" if validation_ok else "\u26a0\ufe0f Partial"
+                        )
+                        completion_embed.add_field(
+                            name="Validation",
+                            value=validation_text,
+                            inline=True,
+                        )
+                        completion_embed.add_field(
+                            name="Pull Request",
+                            value=f"[{pr_title}]({pr['html_url']})",
+                            inline=False,
+                        )
+                        if not validation_ok:
+                            rounds_log = process_log.get("rounds", [])
+                            failed_gates = []
+                            for rnd in rounds_log:
+                                lint = rnd.get("lint", {})
+                                if lint and not lint.get("passed", True):
+                                    failed_gates.append(
+                                        f"Lint ({lint.get('linter', 'unknown')})"
+                                    )
+                                sr = rnd.get("self_review", {})
+                                if sr and not sr.get("passed", True):
+                                    failed_gates.append("Self-review")
+                                ci = rnd.get("ci", {})
+                                if ci and ci.get("status") == "failed":
+                                    failed_gates.append("CI")
+                            if failed_gates:
+                                unique_gates = list(dict.fromkeys(failed_gates))
+                                completion_embed.add_field(
+                                    name="Failed Gates",
+                                    value=", ".join(unique_gates),
+                                    inline=False,
+                                )
+                        input_tok = total_tokens.get("input", 0)
+                        output_tok = total_tokens.get("output", 0)
+                        completion_embed.set_footer(
+                            text=(
+                                f"Tokens: {input_tok:,} input + "
+                                f"{output_tok:,} output = "
+                                f"{input_tok + output_tok:,} total"
+                            )
+                        )
                     await thread.send(embed=completion_embed)
                 except discord.HTTPException:
                     logger.warning(
@@ -760,8 +790,8 @@ class BugActionButton(
                 "Failed to create draft fix for bug %s: %s",
                 self.bug_id, exc,
             )
-            # Cleanup: delete the branch if it was created but PR creation failed
-            if branch_name is not None:
+            # Cleanup: only delete branches we created (not Copilot's)
+            if branch_name is not None and not is_copilot:
                 try:
                     await bot.github_service.delete_branch(
                         owner, repo, branch_name

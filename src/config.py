@@ -61,6 +61,17 @@ class Config:
             os.getenv("CODE_FIX_CI_TIMEOUT", "300")
         )
 
+        # Code fix mode selection: "anthropic" (default) or "copilot"
+        self.CODE_FIX_MODE: str = os.getenv("CODE_FIX_MODE", "anthropic")
+
+        # GitHub PAT for Copilot agent mode (required when CODE_FIX_MODE=copilot)
+        self.GITHUB_PAT: str | None = os.getenv("GITHUB_PAT")
+
+        # Copilot session timeout in seconds (default: 1 hour)
+        self.COPILOT_SESSION_TIMEOUT: int = int(
+            os.getenv("COPILOT_SESSION_TIMEOUT", "3600")
+        )
+
     @property
     def github_configured(self) -> bool:
         """Return True when all required GitHub App credentials are set."""
@@ -70,6 +81,15 @@ class Config:
             self.GITHUB_CLIENT_ID,
             self.GITHUB_CLIENT_SECRET,
         ])
+
+    @property
+    def copilot_configured(self) -> bool:
+        """Return True when Copilot agent mode is fully configured."""
+        return (
+            self.CODE_FIX_MODE == "copilot"
+            and self.GITHUB_PAT is not None
+            and self.github_configured
+        )
 
     @staticmethod
     def _load_github_private_key() -> str | None:

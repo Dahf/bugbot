@@ -9,9 +9,49 @@ import stat
 import tempfile
 from pathlib import Path
 
+import httpx
 from anthropic import AsyncAnthropic, beta_async_tool
 
 logger = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------------
+# Rate-limit-aware HTTP transport
+# ------------------------------------------------------------------
+
+
+class ThrottledTransport(httpx.AsyncBaseTransport):
+    """Wraps an httpx async transport with a minimum delay between requests.
+
+    The Anthropic SDK's ``tool_runner`` fires sequential HTTP requests
+    as fast as possible (one per tool-use turn).  This transport ensures
+    at least *min_interval* seconds elapse between requests, preventing
+    429 rate-limit errors on lower API tiers.
+    """
+
+    def __init__(
+        self,
+        transport: httpx.AsyncBaseTransport | None = None,
+        min_interval: float = 2.0,
+    ) -> None:
+        self._transport = transport or httpx.AsyncHTTPTransport()
+        self._min_interval = min_interval
+        self._last_request_time: float = 0.0
+        self._lock = asyncio.Lock()
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        async with self._lock:
+            now = asyncio.get_event_loop().time()
+            elapsed = now - self._last_request_time
+            if elapsed < self._min_interval:
+                await asyncio.sleep(self._min_interval - elapsed)
+            try:
+                return await self._transport.handle_async_request(request)
+            finally:
+                self._last_request_time = asyncio.get_event_loop().time()
+
+    async def aclose(self) -> None:
+        await self._transport.aclose()
 
 
 # ------------------------------------------------------------------
@@ -177,11 +217,22 @@ class CodeFixService:
         max_rounds: int = 3,
         max_files: int = 15,
         ci_timeout: int = 300,
+        request_min_interval: float = 2.0,
     ) -> None:
+        # Throttle HTTP requests to avoid 429 rate-limit errors.
+        # The tool_runner fires sequential requests as fast as possible;
+        # this ensures at least *request_min_interval* seconds between them.
+        throttled_transport = ThrottledTransport(
+            transport=httpx.AsyncHTTPTransport(),
+            min_interval=request_min_interval,
+        )
+        http_client = httpx.AsyncClient(transport=throttled_transport)
+
         self.client = AsyncAnthropic(
             api_key=api_key,
             timeout=120.0,
             max_retries=2,
+            http_client=http_client,
         )
         self.model = model
         self.max_tokens = max_tokens

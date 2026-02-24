@@ -13,6 +13,7 @@ from src.models.database import setup_database, close_database
 from src.models.github_config import GitHubConfigRepository
 from src.services.ai_analysis import AIAnalysisService
 from src.services.code_fix_service import CodeFixService
+from src.services.copilot_fix_service import CopilotFixService
 from src.services.github_service import GitHubService
 from src.views.bug_buttons import BugActionButton
 
@@ -33,7 +34,7 @@ class BugBot(commands.Bot):
         self.ai_service: AIAnalysisService | None = None
         self.github_service: GitHubService | None = None
         self.github_config_repo: GitHubConfigRepository | None = None
-        self.code_fix_service: CodeFixService | None = None
+        self.code_fix_service: CodeFixService | CopilotFixService | None = None
         self.processing_queue: asyncio.Queue = asyncio.Queue()
 
     async def setup_hook(self) -> None:
@@ -86,8 +87,20 @@ class BugBot(commands.Bot):
                 ),
             )
 
-        # Initialize Code Fix service (optional -- requires both AI and GitHub)
-        if self.config.ANTHROPIC_API_KEY and self.config.github_configured:
+        # Initialize Code Fix service (mode-dependent)
+        code_fix_mode = self.config.CODE_FIX_MODE
+
+        if code_fix_mode == "copilot" and self.config.copilot_configured:
+            self.code_fix_service = CopilotFixService(
+                github_pat=self.config.GITHUB_PAT,
+                session_timeout=self.config.COPILOT_SESSION_TIMEOUT,
+            )
+            logger.info("Code fix service initialized (mode: copilot)")
+        elif (
+            code_fix_mode == "anthropic"
+            and self.config.ANTHROPIC_API_KEY
+            and self.config.github_configured
+        ):
             self.code_fix_service = CodeFixService(
                 api_key=self.config.ANTHROPIC_API_KEY,
                 model=self.config.ANTHROPIC_CODE_FIX_MODEL,
@@ -97,12 +110,17 @@ class BugBot(commands.Bot):
                 ci_timeout=self.config.CODE_FIX_CI_TIMEOUT,
             )
             logger.info(
-                "Code fix service initialized (model: %s, max_rounds: %d)",
+                "Code fix service initialized (mode: anthropic, model: %s, max_rounds: %d)",
                 self.config.ANTHROPIC_CODE_FIX_MODEL,
                 self.config.CODE_FIX_MAX_ROUNDS,
             )
         else:
-            logger.info("Code fix service not initialized (requires AI + GitHub)")
+            logger.info(
+                "Code fix service not initialized (mode=%s, requires %s)",
+                code_fix_mode,
+                "GITHUB_PAT + GitHub App" if code_fix_mode == "copilot"
+                else "ANTHROPIC_API_KEY + GitHub App",
+            )
 
         # Load cog extensions (wrap in try/except -- cogs may not exist yet)
         cog_extensions = [
@@ -144,6 +162,11 @@ class BugBot(commands.Bot):
 
     async def close(self) -> None:
         """Clean up resources before shutting down."""
+        if self.code_fix_service is not None and hasattr(
+            self.code_fix_service, "close"
+        ):
+            await self.code_fix_service.close()
+            logger.info("Code fix service closed")
         if self.github_service is not None:
             await self.github_service.close()
             logger.info("GitHub service closed")
