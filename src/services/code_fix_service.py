@@ -1,6 +1,7 @@
 """Agentic AI code fix service using Claude tool_runner for multi-step code generation."""
 
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -11,6 +12,24 @@ from pathlib import Path
 from anthropic import AsyncAnthropic, beta_async_tool
 
 logger = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------------
+# Linter detection configuration
+# ------------------------------------------------------------------
+
+_LINTER_CONFIGS: dict[str, tuple[str, list[str]]] = {
+    "ruff.toml": ("ruff", ["ruff", "check", "."]),
+    ".flake8": ("flake8", ["flake8", "."]),
+    ".pylintrc": ("pylint", ["pylint", "."]),
+    ".eslintrc.js": ("eslint", ["npx", "eslint", "."]),
+    ".eslintrc.json": ("eslint", ["npx", "eslint", "."]),
+    ".eslintrc.yml": ("eslint", ["npx", "eslint", "."]),
+    "eslint.config.js": ("eslint", ["npx", "eslint", "."]),
+    "eslint.config.mjs": ("eslint", ["npx", "eslint", "."]),
+    "Cargo.toml": ("cargo", ["cargo", "clippy", "--", "-D", "warnings"]),
+    "go.mod": ("go", ["go", "vet", "./..."]),
+}
 
 
 # ------------------------------------------------------------------
@@ -367,3 +386,431 @@ class CodeFixService:
             )
         else:
             return "Please review and improve your previous changes."
+
+    # ------------------------------------------------------------------
+    # Quality gates
+    # ------------------------------------------------------------------
+
+    async def _detect_and_run_linter(self, clone_dir: Path) -> dict:
+        """Detect the project's linter and run it in the cloned repo.
+
+        Detection order:
+        1. pyproject.toml with [tool.ruff] section -> ruff
+        2. Config file detection from _LINTER_CONFIGS map
+        3. No config found -> pass (no linter)
+
+        Returns a dict with ``linter``, ``output``, ``passed``, and
+        optionally ``skipped`` keys.
+        """
+        # Check pyproject.toml for ruff config first
+        pyproject = clone_dir / "pyproject.toml"
+        if pyproject.exists():
+            try:
+                content = pyproject.read_text(encoding="utf-8", errors="replace")
+                if "[tool.ruff]" in content or "[tool.ruff." in content:
+                    return await self._run_linter(
+                        clone_dir, "ruff", ["ruff", "check", "."]
+                    )
+            except Exception:
+                pass
+
+        # Check for linter config files
+        for config_file, (linter_name, cmd) in _LINTER_CONFIGS.items():
+            if (clone_dir / config_file).exists():
+                return await self._run_linter(clone_dir, linter_name, cmd)
+
+        # No linter config found
+        return {"linter": None, "output": "", "passed": True}
+
+    async def _run_linter(
+        self, clone_dir: Path, name: str, cmd: list[str]
+    ) -> dict:
+        """Run a linter command in the clone directory.
+
+        Checks ``shutil.which`` for the binary first. If not installed,
+        returns a skipped result (Pitfall 2 from research).
+        """
+        # For npx-based commands, check npx; otherwise check the binary
+        binary = cmd[0]
+        if not shutil.which(binary):
+            logger.info("Linter binary %r not found, skipping", binary)
+            return {
+                "linter": name,
+                "output": f"Linter {name} not installed on host",
+                "passed": True,
+                "skipped": True,
+            }
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=str(clone_dir),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=60
+            )
+            output = (
+                (stdout or b"").decode("utf-8", errors="replace")
+                + (stderr or b"").decode("utf-8", errors="replace")
+            )
+            return {
+                "linter": name,
+                "output": output,
+                "passed": proc.returncode == 0,
+            }
+        except asyncio.TimeoutError:
+            return {
+                "linter": name,
+                "output": f"{name} timed out after 60 seconds",
+                "passed": False,
+            }
+        except Exception as exc:
+            logger.warning("Linter %s failed to run: %s", name, exc)
+            return {
+                "linter": name,
+                "output": f"Failed to run {name}: {exc}",
+                "passed": True,
+                "skipped": True,
+            }
+
+    async def _run_self_review(
+        self, bug: dict, changed_files: dict[str, str]
+    ) -> dict:
+        """AI self-review of the generated fix.
+
+        Asks Claude to review against 3 criteria:
+        1. Correctness vs. bug report
+        2. Side effects
+        3. Code style consistency
+
+        Returns ``{"passed": bool, "issues": [...], "summary": "..."}``.
+        """
+        # Build the diff summary for review
+        files_summary = []
+        for path, content in changed_files.items():
+            # Show the content (truncated for large files)
+            lines = content.splitlines()
+            if len(lines) > 200:
+                preview = "\n".join(lines[:200]) + f"\n... ({len(lines)} total lines)"
+            else:
+                preview = content
+            files_summary.append(f"--- {path} ---\n{preview}")
+
+        files_text = "\n\n".join(files_summary)
+
+        review_prompt = (
+            f"Review this code fix for a bug report.\n\n"
+            f"Bug: {bug.get('title', 'Unknown')}\n"
+            f"Description: {bug.get('description', 'N/A')}\n"
+            f"Root cause: {bug.get('ai_root_cause', 'N/A')}\n\n"
+            f"Changed files:\n{files_text}\n\n"
+            f"Review against these criteria:\n"
+            f"1. Correctness: Does the fix address the reported bug?\n"
+            f"2. Side effects: Could the change break anything in related code?\n"
+            f"3. Code style: Does the fix match existing codebase conventions?\n\n"
+            f"Respond with ONLY a JSON object:\n"
+            f'{{"passed": true/false, "issues": ["issue1", ...], "summary": "brief review summary"}}\n'
+            f"If the fix looks good, set passed=true and issues=[]."
+        )
+
+        try:
+            message = await self.client.messages.create(
+                model=self.model,
+                max_tokens=1024,
+                messages=[{"role": "user", "content": review_prompt}],
+            )
+            text = message.content[0].text
+
+            # Parse JSON response
+            try:
+                result = json.loads(text)
+            except json.JSONDecodeError:
+                # Try extracting JSON from markdown
+                first_brace = text.find("{")
+                last_brace = text.rfind("}")
+                if first_brace != -1 and last_brace > first_brace:
+                    try:
+                        result = json.loads(text[first_brace:last_brace + 1])
+                    except json.JSONDecodeError:
+                        logger.warning("Could not parse self-review response")
+                        return {
+                            "passed": True,
+                            "issues": [],
+                            "summary": "Review response could not be parsed (treating as passed)",
+                        }
+                else:
+                    logger.warning("Could not parse self-review response")
+                    return {
+                        "passed": True,
+                        "issues": [],
+                        "summary": "Review response could not be parsed (treating as passed)",
+                    }
+
+            return {
+                "passed": result.get("passed", True),
+                "issues": result.get("issues", []),
+                "summary": result.get("summary", ""),
+            }
+
+        except Exception as exc:
+            logger.warning("Self-review failed: %s", exc)
+            return {
+                "passed": True,
+                "issues": [],
+                "summary": f"Self-review skipped due to error: {exc}",
+            }
+
+    async def _check_ci(
+        self, github_service, owner: str, repo: str, ref: str, timeout: int
+    ) -> dict:
+        """Poll CI status via GitHubService.
+
+        Thin wrapper that delegates to ``github_service.poll_ci_status``.
+        """
+        return await github_service.poll_ci_status(
+            owner, repo, ref, timeout=timeout
+        )
+
+    # ------------------------------------------------------------------
+    # Main orchestration
+    # ------------------------------------------------------------------
+
+    async def generate_fix(
+        self,
+        github_service,
+        owner: str,
+        repo: str,
+        branch: str,
+        bug: dict,
+        relevant_paths: list[str],
+        progress_callback=None,
+    ) -> dict:
+        """Generate and validate a code fix using the agentic loop.
+
+        This is the main entry point called by the Draft Fix button handler.
+
+        *progress_callback* is an optional ``async def callback(message: str)``
+        for posting Discord progress messages. If None, progress is logged only.
+
+        Returns a dict with keys:
+        - ``success``: bool
+        - ``changed_files``: dict of path -> content (if success)
+        - ``process_log``: dict with files_explored, rounds, total_tokens
+        - ``rounds_taken``: int
+        - ``validation_passed``: bool
+        - ``commit_sha``: str (if committed)
+        - ``error``: str (if not success)
+        """
+
+        async def _progress(msg: str) -> None:
+            """Post progress via callback or log."""
+            logger.info("CodeFix progress: %s", msg)
+            if progress_callback:
+                try:
+                    await progress_callback(msg)
+                except Exception as exc:
+                    logger.warning("Progress callback failed: %s", exc)
+
+        clone_dir = None
+        process_log: dict = {
+            "files_explored": [],
+            "rounds": [],
+            "total_tokens": {"input": 0, "output": 0},
+        }
+        commit_sha = None
+        validation_passed = False
+        round_num = 0
+
+        try:
+            # Step 1: Clone repo
+            await _progress("Cloning repository...")
+            token = await github_service.get_installation_token(owner, repo)
+            clone_dir = await self.clone_repo(owner, repo, branch, token)
+
+            # Step 2: Set up tools and tracking
+            tools, changed_files_set, files_read_count = _create_tools(
+                clone_dir, self.max_files
+            )
+
+            best_changed_files: dict[str, str] = {}
+            feedback: dict | None = None
+            committed_this_round = False
+
+            # Step 3: Iteration loop
+            for round_num in range(1, self.max_rounds + 1):
+                committed_this_round = False
+
+                await _progress(
+                    f"Generating fix (round {round_num}/{self.max_rounds})..."
+                )
+
+                # a. Run generation
+                result = await self._run_generation_round(
+                    bug,
+                    clone_dir,
+                    tools,
+                    round_num,
+                    feedback=feedback,
+                    relevant_paths=relevant_paths,
+                )
+
+                # b. Track tokens
+                round_usage = result["usage"]
+                process_log["total_tokens"]["input"] += round_usage["input_tokens"]
+                process_log["total_tokens"]["output"] += round_usage["output_tokens"]
+
+                await _progress(
+                    f"Round {round_num} complete. "
+                    f"Tokens: {round_usage['input_tokens']} in / "
+                    f"{round_usage['output_tokens']} out "
+                    f"(total: {process_log['total_tokens']['input']} in / "
+                    f"{process_log['total_tokens']['output']} out)"
+                )
+
+                # c. Collect changed files from the clone
+                current_changes: dict[str, str] = {}
+                for rel_path in changed_files_set:
+                    full_path = clone_dir / rel_path
+                    if full_path.exists():
+                        current_changes[rel_path] = full_path.read_text(
+                            encoding="utf-8", errors="replace"
+                        )
+
+                best_changed_files = current_changes
+
+                # d. Record round in process log
+                round_log: dict = {
+                    "round": round_num,
+                    "files_changed": list(changed_files_set),
+                    "tokens": round_usage,
+                }
+
+                # e. Update files explored
+                process_log["files_explored"] = list(changed_files_set)
+
+                if not current_changes:
+                    logger.warning(
+                        "Round %d produced no file changes", round_num
+                    )
+                    round_log["lint"] = {"skipped": True, "reason": "no changes"}
+                    process_log["rounds"].append(round_log)
+                    feedback = None
+                    continue
+
+                # --- Quality Gates ---
+
+                # Gate 1: Lint check
+                await _progress("Running lint check...")
+                lint_result = await self._detect_and_run_linter(clone_dir)
+                round_log["lint"] = lint_result
+
+                if not lint_result["passed"]:
+                    await _progress(
+                        f"Lint failed ({lint_result.get('linter', 'unknown')}). "
+                        f"Iterating..."
+                    )
+                    feedback = {
+                        "type": "lint",
+                        "output": lint_result["output"],
+                    }
+                    process_log["rounds"].append(round_log)
+                    continue
+
+                # Gate 2: AI self-review
+                await _progress("Running AI self-review...")
+                review_result = await self._run_self_review(
+                    bug, current_changes
+                )
+                round_log["self_review"] = review_result
+
+                if not review_result["passed"]:
+                    issues_text = "; ".join(review_result.get("issues", []))
+                    await _progress(
+                        f"Self-review found issues: {issues_text}. Iterating..."
+                    )
+                    feedback = {
+                        "type": "self_review",
+                        "issues": review_result["issues"],
+                    }
+                    process_log["rounds"].append(round_log)
+                    continue
+
+                # Gate 3: CI check (commit then poll)
+                await _progress("Committing changes and checking CI...")
+                commit_msg = (
+                    f"fix: {bug.get('title', 'bug fix')} "
+                    f"(round {round_num})"
+                )
+                commit_sha = await github_service.commit_files_atomic(
+                    owner, repo, branch, current_changes, commit_msg
+                )
+                committed_this_round = True
+
+                await _progress("Checking CI status...")
+                ci_result = await self._check_ci(
+                    github_service, owner, repo, commit_sha, self.ci_timeout
+                )
+                round_log["ci"] = ci_result
+
+                if ci_result["status"] == "failed":
+                    await _progress(
+                        f"CI failed: {ci_result['details']}. Iterating..."
+                    )
+                    feedback = {
+                        "type": "ci",
+                        "details": ci_result["details"],
+                    }
+                    process_log["rounds"].append(round_log)
+                    continue
+
+                # CI passed, no_ci, or timeout -- we're done
+                validation_passed = ci_result["status"] in ("passed", "no_ci")
+                await _progress(
+                    f"CI status: {ci_result['status']}. "
+                    f"{'All quality gates passed!' if validation_passed else 'Finalizing...'}"
+                )
+                process_log["rounds"].append(round_log)
+                break
+
+            else:
+                # All rounds exhausted -- record final round
+                if round_num > 0 and (
+                    not process_log["rounds"]
+                    or process_log["rounds"][-1]["round"] != round_num
+                ):
+                    process_log["rounds"].append(round_log)
+
+            # Step 4: Final commit (if not already committed in CI step)
+            if best_changed_files and not committed_this_round:
+                commit_msg = (
+                    f"fix: {bug.get('title', 'bug fix')} "
+                    f"(#{bug.get('hash_id', '')})"
+                )
+                commit_sha = await github_service.commit_files_atomic(
+                    owner, repo, branch, best_changed_files, commit_msg
+                )
+                await _progress(f"Final commit: {commit_sha[:8] if commit_sha else 'none'}")
+
+            # Step 5: Build result
+            return {
+                "success": True,
+                "changed_files": best_changed_files,
+                "process_log": process_log,
+                "rounds_taken": round_num,
+                "validation_passed": validation_passed,
+                "commit_sha": commit_sha,
+            }
+
+        except Exception as exc:
+            logger.exception("Code fix generation failed: %s", exc)
+            return {
+                "success": False,
+                "error": str(exc),
+                "process_log": process_log,
+            }
+
+        finally:
+            if clone_dir:
+                self.cleanup_clone(clone_dir)
