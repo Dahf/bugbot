@@ -10,7 +10,9 @@ from discord.ext import commands
 from src.config import Config
 from src.models.bug import BugRepository
 from src.models.database import setup_database, close_database
+from src.models.github_config import GitHubConfigRepository
 from src.services.ai_analysis import AIAnalysisService
+from src.services.github_service import GitHubService
 from src.views.bug_buttons import BugActionButton
 
 logger = logging.getLogger(__name__)
@@ -28,6 +30,8 @@ class BugBot(commands.Bot):
         self.db = None
         self.bug_repo: BugRepository | None = None
         self.ai_service: AIAnalysisService | None = None
+        self.github_service: GitHubService | None = None
+        self.github_config_repo: GitHubConfigRepository | None = None
         self.processing_queue: asyncio.Queue = asyncio.Queue()
 
     async def setup_hook(self) -> None:
@@ -56,11 +60,25 @@ class BugBot(commands.Bot):
         else:
             logger.warning("ANTHROPIC_API_KEY not set -- AI analysis disabled")
 
+        # Initialize GitHub service (optional -- bot works without it)
+        if self.config.github_configured:
+            self.github_service = GitHubService(
+                app_id=self.config.GITHUB_APP_ID,
+                private_key=self.config.GITHUB_PRIVATE_KEY,
+                client_id=self.config.GITHUB_CLIENT_ID,
+                client_secret=self.config.GITHUB_CLIENT_SECRET,
+            )
+            self.github_config_repo = GitHubConfigRepository(self.db)
+            logger.info("GitHub integration initialized")
+        else:
+            logger.warning("GitHub App not configured -- GitHub integration disabled")
+
         # Load cog extensions (wrap in try/except -- cogs may not exist yet)
         cog_extensions = [
             "src.cogs.webhook",
             "src.cogs.bug_reports",
             "src.cogs.ai_analysis",
+            "src.cogs.github_integration",
         ]
         for ext in cog_extensions:
             try:
@@ -95,6 +113,9 @@ class BugBot(commands.Bot):
 
     async def close(self) -> None:
         """Clean up resources before shutting down."""
+        if self.github_service is not None:
+            await self.github_service.close()
+            logger.info("GitHub service closed")
         if self.db is not None:
             await close_database(self.db)
             logger.info("Database connection closed")
