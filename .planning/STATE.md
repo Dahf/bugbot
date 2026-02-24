@@ -5,22 +5,22 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** Bug reports that arrive in Discord get triaged, tracked, and fixed with minimal manual effort
-**Current focus:** Phase 3 complete (including gap closure) -- ready for Phase 4
+**Current focus:** Phase 5 in progress -- AI Code Fix agentic multi-step code generation
 
 ## Current Position
 
-Phase: 3 of 4 (GitHub Integration) -- COMPLETE
-Plan: 4 of 4 in current phase (03-04 complete -- gap closure)
-Status: Phase Complete
-Last activity: 2026-02-24 -- Completed 03-04-PLAN.md (Gap closure: source file reading, context commits, enriched PRs)
+Phase: 5 of 5 (AI Code Fix)
+Plan: 2 of 3 in current phase (05-01 complete)
+Status: In Progress
+Last activity: 2026-02-24 -- Completed 05-01-PLAN.md (GitHub service extensions: atomic commit, CI polling, installation token)
 
-Progress: [████████░░] 80%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
-- Average duration: ~11 min
+- Total plans completed: 9
+- Average duration: ~10 min
 - Total execution time: ~1.5 hours
 
 **By Phase:**
@@ -30,14 +30,16 @@ Progress: [████████░░] 80%
 | 01-foundation-and-ingestion | 2 | ~45 min | ~23 min |
 | 02-ai-analysis | 2 | 14 min | 7 min |
 | 03-github-integration | 4 | 24 min | 6 min |
+| 05-ai-code-fix | 1 | 3 min | 3 min |
 
 **Recent Trend:**
-- Last 5 plans: 7 min, 7 min, 7 min, 7 min, 3 min
-- Trend: Consistent 7 min avg for Phase 2-3; gap closure plans faster at 3 min
+- Last 5 plans: 7 min, 7 min, 7 min, 3 min, 3 min
+- Trend: Consistent 3 min for focused extension plans
 
 *Updated after each plan completion*
 | Phase 03 P03 | 7min | 2 tasks | 6 files |
 | Phase 03 P04 | 3min | 2 tasks | 3 files |
+| Phase 05 P01 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -83,6 +85,9 @@ Recent decisions affecting current work:
 - [03-04]: Context file committed at .bugbot/context.md on feature branch (namespaced directory)
 - [03-04]: Each new Draft Fix step (7a, 7b, 7c) individually try/except wrapped for graceful degradation
 - [03-04]: Source file snippets limited to 200 lines in context commit, 50KB max per file in read_repo_files
+- [05-01]: Default code fix model is claude-sonnet-4-5-20250929 (good balance of quality and cost for code generation)
+- [05-01]: CI polling uses initial delay + second-chance retry before declaring no_ci
+- [05-01]: Installation token extracted via apps.async_create_installation_access_token
 
 ### Roadmap Evolution
 
@@ -100,5 +105,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 03-04-PLAN.md (Gap closure: source file reading, context commits, enriched PRs) -- Phase 3 COMPLETE (4/4 plans)
+Stopped at: Completed 05-01-PLAN.md (GitHub service extensions: atomic commit, CI polling, installation token)
 Resume file: None
