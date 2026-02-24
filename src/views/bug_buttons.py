@@ -10,6 +10,7 @@ from src.utils.embeds import build_summary_embed, build_analysis_embed, _get_dis
 from src.utils.github_templates import (
     build_issue_body,
     build_pr_body,
+    build_context_commit_content,
     build_discord_thread_url,
     get_priority_label,
     get_area_label,
@@ -525,6 +526,46 @@ class BugActionButton(
                     return
                 raise
 
+            # 7a. Identify relevant source files (non-fatal)
+            relevant_paths: list[str] = []
+            try:
+                relevant_paths = await bot.github_service.identify_relevant_files(
+                    owner, repo, bug.get("ai_affected_area", ""), ref=default_branch
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to identify relevant files for bug %s: %s",
+                    self.bug_id, exc,
+                )
+
+            # 7b. Read source files (non-fatal)
+            source_files: list[dict] = []
+            if relevant_paths:
+                try:
+                    source_files = await bot.github_service.read_repo_files(
+                        owner, repo, relevant_paths, ref=default_branch
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to read source files for bug %s: %s",
+                        self.bug_id, exc,
+                    )
+
+            # 7c. Commit context file to the branch (non-fatal)
+            try:
+                context_content = build_context_commit_content(bug, source_files)
+                await bot.github_service.commit_context_file(
+                    owner, repo, branch_name,
+                    ".bugbot/context.md",
+                    context_content,
+                    f"Add bug context for #{bug['hash_id']}",
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to commit context file for bug %s: %s",
+                    self.bug_id, exc,
+                )
+
             # 8. Build PR body
             issue_number = bug.get("github_issue_number")
             discord_thread_url = None
@@ -536,6 +577,7 @@ class BugActionButton(
                 bug,
                 issue_number=issue_number,
                 discord_thread_url=discord_thread_url,
+                source_files=source_files,
             )
 
             # 9. Build PR title
