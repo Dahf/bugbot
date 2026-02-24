@@ -338,6 +338,45 @@ class BugRepository:
         return await self.get_bug(hash_id)
 
     # ------------------------------------------------------------------
+    # GitHub Issue
+    # ------------------------------------------------------------------
+
+    async def store_github_issue(
+        self, hash_id: str, issue_number: int, issue_url: str, changed_by: str
+    ) -> dict | None:
+        """Store GitHub issue details and transition status to 'issue_created'.
+
+        Returns the updated bug dict, or ``None`` if *hash_id* not found.
+        """
+        bug = await self.get_bug(hash_id)
+        if bug is None:
+            return None
+
+        now = _utcnow_iso()
+        old_status = bug["status"]
+
+        await self.db.execute(
+            """
+            UPDATE bugs
+            SET github_issue_number = ?,
+                github_issue_url = ?,
+                status = 'issue_created',
+                updated_at = ?
+            WHERE hash_id = ?
+            """,
+            (issue_number, issue_url, now, hash_id),
+        )
+        await self.db.execute(
+            """
+            INSERT INTO status_history (bug_id, old_status, new_status, changed_by, changed_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (bug["id"], old_status, "issue_created", changed_by, now),
+        )
+        await self.db.commit()
+        return await self.get_bug(hash_id)
+
+    # ------------------------------------------------------------------
     # Store-then-process entry point
     # ------------------------------------------------------------------
 

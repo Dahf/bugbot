@@ -75,6 +75,51 @@ class GitHubService:
             })
         return repos
 
+    async def ensure_labels(
+        self,
+        owner: str,
+        repo: str,
+        labels: list[tuple[str, str]],
+    ) -> None:
+        """Create labels in the repo if they don't already exist.
+
+        *labels* is a list of (name, hex_color) tuples.  A 422 response
+        means the label already exists -- that's expected and ignored.
+        """
+        gh = await self.get_installation_client(owner, repo)
+        for name, color in labels:
+            try:
+                await gh.rest.issues.async_create_label(
+                    owner, repo, name=name, color=color
+                )
+                logger.info("Created label %r in %s/%s", name, owner, repo)
+            except Exception:
+                # 422 = label already exists -- that's fine
+                pass
+
+    async def create_issue(
+        self,
+        owner: str,
+        repo: str,
+        title: str,
+        body: str,
+        labels: list[str],
+    ) -> dict:
+        """Create a GitHub issue and return its number, URL, and title.
+
+        Returns a dict with ``number``, ``html_url``, and ``title`` keys.
+        """
+        gh = await self.get_installation_client(owner, repo)
+        resp = await gh.rest.issues.async_create(
+            owner, repo, title=title, body=body, labels=labels
+        )
+        issue = resp.parsed_data
+        return {
+            "number": issue.number,
+            "html_url": issue.html_url,
+            "title": issue.title,
+        }
+
     async def close(self) -> None:
         """Close the underlying HTTP client for clean shutdown."""
         await self.app_github.aclose()
