@@ -52,6 +52,17 @@ CREATE INDEX IF NOT EXISTS idx_bugs_hash_id ON bugs(hash_id);
 CREATE INDEX IF NOT EXISTS idx_bugs_status ON bugs(status);
 CREATE INDEX IF NOT EXISTS idx_bugs_message_id ON bugs(message_id);
 CREATE INDEX IF NOT EXISTS idx_status_history_bug_id ON status_history(bug_id);
+
+CREATE TABLE IF NOT EXISTS github_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id INTEGER UNIQUE NOT NULL,
+    installation_id INTEGER NOT NULL,
+    repo_owner TEXT NOT NULL,
+    repo_name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_github_config_guild ON github_config(guild_id);
 """
 
 
@@ -88,6 +99,34 @@ async def migrate_add_analysis_columns(db: aiosqlite.Connection) -> None:
     await db.commit()
 
 
+_GITHUB_COLUMNS: list[tuple[str, str]] = [
+    ("github_issue_number", "INTEGER"),
+    ("github_issue_url", "TEXT"),
+    ("github_pr_number", "INTEGER"),
+    ("github_pr_url", "TEXT"),
+    ("github_branch_name", "TEXT"),
+]
+
+
+async def migrate_add_github_columns(db: aiosqlite.Connection) -> None:
+    """Add Phase 3 GitHub columns to the bugs table if missing.
+
+    This handles existing databases created with the Phase 1/2 schema.
+    Idempotent -- safe to run multiple times.
+    """
+    async with db.execute("PRAGMA table_info(bugs)") as cursor:
+        rows = await cursor.fetchall()
+        existing_columns = {row[1] for row in rows}
+
+    for col_name, col_type in _GITHUB_COLUMNS:
+        if col_name not in existing_columns:
+            await db.execute(
+                f"ALTER TABLE bugs ADD COLUMN {col_name} {col_type}"
+            )
+
+    await db.commit()
+
+
 async def setup_database(db_path: str = "data/bugs.db") -> aiosqlite.Connection:
     """Create (or open) the SQLite database and ensure the schema exists.
 
@@ -106,6 +145,9 @@ async def setup_database(db_path: str = "data/bugs.db") -> aiosqlite.Connection:
 
     # Migrate existing databases to include Phase 2 analysis columns
     await migrate_add_analysis_columns(db)
+
+    # Migrate existing databases to include Phase 3 GitHub columns
+    await migrate_add_github_columns(db)
 
     return db
 

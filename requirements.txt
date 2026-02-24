@@ -2,3 +2,5 @@ discord.py>=2.6.0,<3.0.0
 aiosqlite>=0.22.0,<1.0.0
 python-dotenv>=1.0.0
 anthropic>=0.80.0,<1.0.0
+githubkit[auth-app]>=0.14.0,<1.0.0
+aiohttp>=3.9.0,<4.0.0

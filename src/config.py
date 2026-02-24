@@ -1,5 +1,6 @@
 """Configuration loaded from environment variables."""
 
+import base64
 import os
 from dotenv import load_dotenv
 
@@ -34,6 +35,47 @@ class Config:
             "ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"
         )
         self.AI_MAX_TOKENS: int = int(os.getenv("AI_MAX_TOKENS", "1024"))
+
+        # GitHub Integration (Phase 3) -- optional, bot works without these
+        self.GITHUB_APP_ID: str | None = os.getenv("GITHUB_APP_ID")
+        self.GITHUB_PRIVATE_KEY: str | None = self._load_github_private_key()
+        self.GITHUB_CLIENT_ID: str | None = os.getenv("GITHUB_CLIENT_ID")
+        self.GITHUB_CLIENT_SECRET: str | None = os.getenv("GITHUB_CLIENT_SECRET")
+        self.GITHUB_WEBHOOK_SECRET: str | None = os.getenv("GITHUB_WEBHOOK_SECRET")
+        self.GITHUB_APP_NAME: str | None = os.getenv("GITHUB_APP_NAME")
+
+    @property
+    def github_configured(self) -> bool:
+        """Return True when all required GitHub App credentials are set."""
+        return all([
+            self.GITHUB_APP_ID,
+            self.GITHUB_PRIVATE_KEY,
+            self.GITHUB_CLIENT_ID,
+            self.GITHUB_CLIENT_SECRET,
+        ])
+
+    @staticmethod
+    def _load_github_private_key() -> str | None:
+        """Load the GitHub App private key from file or env var.
+
+        Tries GITHUB_PRIVATE_KEY_FILE first (path to .pem file), then falls
+        back to GITHUB_PRIVATE_KEY env var (base64-encoded PEM for Docker).
+        Returns None if neither is set.
+        """
+        key_file = os.getenv("GITHUB_PRIVATE_KEY_FILE")
+        if key_file:
+            with open(key_file, "r") as f:
+                return f.read()
+
+        key_b64 = os.getenv("GITHUB_PRIVATE_KEY")
+        if key_b64:
+            try:
+                return base64.b64decode(key_b64).decode("utf-8")
+            except Exception:
+                # Not base64-encoded -- return as-is (raw PEM string)
+                return key_b64
+
+        return None
 
     @staticmethod
     def _require(key: str) -> str:
