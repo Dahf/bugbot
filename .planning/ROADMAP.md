@@ -60,12 +60,13 @@ Plans:
   3. The PR description includes bug context, AI analysis summary, and a link to the Discord thread for reviewers
   4. The bot never commits to the default branch (main/master) under any circumstances, and branch names follow a consistent convention
   5. GitHub API rate limits are handled with retry and backoff, preventing partial workflows (no orphaned branches or half-created issues)
-**Plans:** 3 plans
+**Plans:** 4 plans
 
 Plans:
 - [x] 03-01-PLAN.md -- GitHub service foundation: config, database schema, App auth service, markdown templates
 - [x] 03-02-PLAN.md -- /init slash command setup and Create Issue button with labels and embed updates
-- [ ] 03-03-PLAN.md -- Draft Fix button (branch + PR scaffold) and GitHub webhook event handlers with auto-resolve
+- [x] 03-03-PLAN.md -- Draft Fix button (branch + PR scaffold) and GitHub webhook event handlers with auto-resolve
+- [ ] 03-04-PLAN.md -- Gap closure: source file reading, context commit, and enriched PR body for Draft Fix
 
 ### Phase 4: Intelligence and Dashboard
 **Goal**: The bot becomes a team-ready bug management tool with smart deduplication, a persistent priority-sorted dashboard, team assignments, and auto-generated release notes
@@ -92,5 +93,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Foundation and Ingestion | 2/2 | Complete   | 2026-02-23 |
 | 2. AI Analysis | 2/2 | Complete | 2026-02-24 |
-| 3. GitHub Integration | 2/3 | In Progress | - |
+| 3. GitHub Integration | 3/4 | In Progress | - |
 | 4. Intelligence and Dashboard | 0/2 | Not started | - |
