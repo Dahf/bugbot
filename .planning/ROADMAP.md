@@ -101,7 +101,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 **Goal:** The Draft Fix button produces real AI-generated code fixes through a multi-step agentic loop with quality validation (lint, self-review, CI), instead of scaffolding empty PRs
 **Depends on:** Phase 3
 **Requirements:** GH-04, GH-05, GH-06
-**Plans:** 3 plans
+**Plans:** 3/3 plans complete
 
 Plans:
 - [ ] 05-01-PLAN.md — GitHub service extensions (atomic commit, CI polling, install token) + config
