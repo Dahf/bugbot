@@ -95,3 +95,15 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 2. AI Analysis | 2/2 | Complete | 2026-02-24 |
 | 3. GitHub Integration | 3/4 | In Progress | - |
 | 4. Intelligence and Dashboard | 0/2 | Not started | - |
+
+### Phase 5: AI Code Fix — Agentic multi-step code generation in Draft Fix Flow
+
+**Goal:** The Draft Fix button produces real AI-generated code fixes through a multi-step agentic loop with quality validation (lint, self-review, CI), instead of scaffolding empty PRs
+**Depends on:** Phase 3
+**Requirements:** GH-04, GH-05, GH-06
+**Plans:** 3 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — GitHub service extensions (atomic commit, CI polling, install token) + config
+- [ ] 05-02-PLAN.md — CodeFixService: agentic loop with clone, tool use, quality gates, iteration
+- [ ] 05-03-PLAN.md — Integration: rewrite Draft Fix button, progress messages, completion embed, PR templates
