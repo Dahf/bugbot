@@ -56,30 +56,15 @@ class Config:
 
     @staticmethod
     def _load_github_private_key() -> str | None:
-        """Load the GitHub App private key from file or env var.
+        """Load the GitHub App private key from GITHUB_PRIVATE_KEY env var.
 
-        Tries GITHUB_PRIVATE_KEY_FILE first (path to .pem file), then falls
-        back to GITHUB_PRIVATE_KEY env var (base64-encoded PEM for Docker).
-        Returns None if neither is set.
+        Expects a base64-encoded PEM string. Returns None if not set.
         """
-        key_file = os.getenv("GITHUB_PRIVATE_KEY_FILE")
-        if key_file:
-            # Resolve relative paths from the project root (where .env lives)
-            if not os.path.isabs(key_file):
-                project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                key_file = os.path.join(project_root, key_file)
-            try:
-                with open(key_file, "r") as f:
-                    return f.read()
-            except FileNotFoundError:
-                pass  # Fall through to GITHUB_PRIVATE_KEY
-
         key_b64 = os.getenv("GITHUB_PRIVATE_KEY")
         if key_b64:
             try:
                 return base64.b64decode(key_b64).decode("utf-8")
             except Exception:
-                # Not base64-encoded -- return as-is (raw PEM string)
                 return key_b64
 
         return None
