@@ -257,9 +257,17 @@ class CodeFixService:
     # ------------------------------------------------------------------
 
     def _build_code_fix_prompt(
-        self, bug: dict, relevant_paths: list[str]
+        self,
+        bug: dict,
+        relevant_paths: list[str],
+        prefetched_files: dict[str, str] | None = None,
     ) -> str:
-        """Build the system prompt for the code fix generation round."""
+        """Build the system prompt for the code fix generation round.
+
+        If *prefetched_files* is provided (path -> content), the file
+        contents are embedded directly in the prompt so the model does
+        not need to call ``read_file`` for them, saving API round-trips.
+        """
         hash_id = bug.get("hash_id", "unknown")
         title = bug.get("title", "Unknown bug")
         description = bug.get("description", "No description provided.")
@@ -269,10 +277,22 @@ class CodeFixService:
         affected_area = bug.get("ai_affected_area", "Not identified.")
         suggested_fix = bug.get("ai_suggested_fix", "No suggestion.")
 
-        paths_section = ""
-        if relevant_paths:
+        # Build file contents section
+        files_section = ""
+        if prefetched_files:
+            file_blocks = []
+            for fpath, content in prefetched_files.items():
+                lines = content.splitlines()
+                if len(lines) > 500:
+                    content = "\n".join(lines[:500]) + f"\n\n... truncated ({len(lines)} total lines)"
+                file_blocks.append(f"--- {fpath} ---\n{content}")
+            files_section = (
+                "\n\nRelevant source files (already read for you):\n\n"
+                + "\n\n".join(file_blocks)
+            )
+        elif relevant_paths:
             paths_list = "\n".join(f"  - {p}" for p in relevant_paths)
-            paths_section = (
+            files_section = (
                 f"\n\nRelevant files identified (start by reading these):\n"
                 f"{paths_list}"
             )
@@ -290,14 +310,16 @@ class CodeFixService:
             f"  Root Cause: {root_cause}\n"
             f"  Affected Area: {affected_area}\n"
             f"  Suggested Fix: {suggested_fix}\n"
-            f"{paths_section}\n"
+            f"{files_section}\n"
             f"\n"
             f"Instructions:\n"
-            f"1. Read the relevant files to understand the codebase.\n"
-            f"2. Explore related files if needed (follow imports, check tests).\n"
-            f"3. Write the fix using write_file -- provide the COMPLETE file content.\n"
-            f"4. Keep changes minimal and focused on the reported bug.\n"
-            f"5. Preserve existing code style and conventions.\n"
+            f"1. The relevant source files are provided above -- study them.\n"
+            f"2. Use read_file / search_in_repo ONLY if you need additional context\n"
+            f"   (e.g. imports, related modules). Avoid unnecessary reads.\n"
+            f"3. Plan ALL your changes, then write ALL affected files at once.\n"
+            f"4. write_file requires BOTH 'path' and 'content' (the COMPLETE file).\n"
+            f"5. Keep changes minimal and focused on the reported bug.\n"
+            f"6. Preserve existing code style and conventions.\n"
             f"\n"
             f"When done, return a brief summary of what you changed and why."
         )
@@ -314,6 +336,7 @@ class CodeFixService:
         round_number: int,
         feedback: dict | None = None,
         relevant_paths: list[str] | None = None,
+        prefetched_files: dict[str, str] | None = None,
     ) -> dict:
         """Run a single round of agentic code generation via tool_runner.
 
@@ -324,7 +347,9 @@ class CodeFixService:
         Returns ``{"message": final_message, "usage": {"input_tokens": ..., "output_tokens": ...}}``.
         """
         if round_number == 1:
-            prompt = self._build_code_fix_prompt(bug, relevant_paths or [])
+            prompt = self._build_code_fix_prompt(
+                bug, relevant_paths or [], prefetched_files=prefetched_files
+            )
             messages = [{"role": "user", "content": prompt}]
         else:
             # Build feedback message for iteration rounds
@@ -342,7 +367,22 @@ class CodeFixService:
             tools=tools,
             messages=messages,
         )
-        final_message = await runner.until_done()
+
+        try:
+            final_message = await runner.until_done()
+        except ValueError as exc:
+            # The Anthropic SDK raises ValueError when the model produces
+            # a tool call with missing/invalid arguments (e.g. write_file
+            # called without 'content').  Treat as a failed round so the
+            # outer loop can retry with corrective feedback.
+            logger.warning(
+                "Round %d tool call validation error: %s", round_number, exc
+            )
+            return {
+                "message": None,
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+                "error": f"Tool call validation error: {exc}",
+            }
 
         # Extract token usage
         usage = {
@@ -375,6 +415,17 @@ class CodeFixService:
                 f"{issues_text}\n\n"
                 f"Please address these issues. Read the affected files, "
                 f"apply corrections, and write the updated files."
+            )
+        elif feedback_type == "tool_error":
+            output = feedback.get("output", "Unknown tool error.")
+            return (
+                f"Your previous attempt failed because a tool call was "
+                f"malformed:\n\n{output}\n\n"
+                f"When using write_file you MUST provide BOTH arguments:\n"
+                f"  - path: the file path\n"
+                f"  - content: the COMPLETE file content\n\n"
+                f"Please try again. Read the relevant files and write "
+                f"your fix, making sure to include the full file content."
             )
         elif feedback_type == "ci":
             details = feedback.get("details", "No details available.")
@@ -634,6 +685,30 @@ class CodeFixService:
                 clone_dir, self.max_files
             )
 
+            # Step 2b: Pre-read relevant files so they can be embedded
+            #          in the prompt, avoiding read_file tool calls.
+            prefetched_files: dict[str, str] = {}
+            for rel_path in relevant_paths:
+                full = (clone_dir / rel_path).resolve()
+                try:
+                    full.relative_to(clone_dir.resolve())
+                except ValueError:
+                    continue
+                if full.is_file():
+                    try:
+                        prefetched_files[rel_path] = full.read_text(
+                            encoding="utf-8", errors="replace"
+                        )
+                    except Exception:
+                        logger.debug("Could not pre-read %s", rel_path)
+
+            if prefetched_files:
+                logger.info(
+                    "Pre-read %d files (%d bytes) to embed in prompt",
+                    len(prefetched_files),
+                    sum(len(v) for v in prefetched_files.values()),
+                )
+
             best_changed_files: dict[str, str] = {}
             feedback: dict | None = None
             committed_this_round = False
@@ -646,7 +721,7 @@ class CodeFixService:
                     f"Generating fix (round {round_num}/{self.max_rounds})..."
                 )
 
-                # a. Run generation
+                # a. Run generation (only pass prefetched files on round 1)
                 result = await self._run_generation_round(
                     bug,
                     clone_dir,
@@ -654,9 +729,30 @@ class CodeFixService:
                     round_num,
                     feedback=feedback,
                     relevant_paths=relevant_paths,
+                    prefetched_files=prefetched_files if round_num == 1 else None,
                 )
 
-                # b. Track tokens
+                # b. Handle tool-call validation errors (model omitted
+                #    a required argument).  Retry with corrective feedback.
+                if result.get("error"):
+                    await _progress(
+                        f"Round {round_num} hit a tool error: "
+                        f"{result['error'][:120]}. Retrying..."
+                    )
+                    round_log: dict = {
+                        "round": round_num,
+                        "files_changed": list(changed_files_set),
+                        "tokens": result["usage"],
+                        "error": result["error"],
+                    }
+                    process_log["rounds"].append(round_log)
+                    feedback = {
+                        "type": "tool_error",
+                        "output": result["error"],
+                    }
+                    continue
+
+                # c. Track tokens
                 round_usage = result["usage"]
                 process_log["total_tokens"]["input"] += round_usage["input_tokens"]
                 process_log["total_tokens"]["output"] += round_usage["output_tokens"]
