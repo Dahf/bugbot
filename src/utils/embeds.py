@@ -212,6 +212,26 @@ def build_summary_embed(bug: dict) -> discord.Embed:
             inline=True,
         )
 
+    # GitHub Issue link -- shown when an issue has been created
+    github_issue_url = bug.get("github_issue_url")
+    if github_issue_url:
+        issue_num = bug.get("github_issue_number", "?")
+        embed.add_field(
+            name="GitHub Issue",
+            value=f"[#{issue_num}]({github_issue_url})",
+            inline=True,
+        )
+
+    # Pull Request link -- shown when a PR has been created (Plan 03)
+    github_pr_url = bug.get("github_pr_url")
+    if github_pr_url:
+        pr_num = bug.get("github_pr_number", "?")
+        embed.add_field(
+            name="Pull Request",
+            value=f"[PR #{pr_num}]({github_pr_url})",
+            inline=True,
+        )
+
     embed.set_footer(text=f"Bug #{hash_id}")
 
     # Screenshot as embed image (signed URL from Supabase)
