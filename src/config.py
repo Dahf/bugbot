@@ -64,6 +64,10 @@ class Config:
         """
         key_file = os.getenv("GITHUB_PRIVATE_KEY_FILE")
         if key_file:
+            # Resolve relative paths from the project root (where .env lives)
+            if not os.path.isabs(key_file):
+                project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                key_file = os.path.join(project_root, key_file)
             with open(key_file, "r") as f:
                 return f.read()
 
