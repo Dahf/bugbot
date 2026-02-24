@@ -84,6 +84,10 @@ Recent decisions affecting current work:
 - [03-04]: Each new Draft Fix step (7a, 7b, 7c) individually try/except wrapped for graceful degradation
 - [03-04]: Source file snippets limited to 200 lines in context commit, 50KB max per file in read_repo_files
 
+### Roadmap Evolution
+
+- Phase 5 added: AI Code Fix — Agentic multi-step code generation im Draft Fix Flow
+
 ### Pending Todos
 
 None yet.
