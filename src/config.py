@@ -52,7 +52,7 @@ class Config:
             os.getenv("CODE_FIX_MAX_ROUNDS", "3")
         )
         self.CODE_FIX_MAX_TOKENS: int = int(
-            os.getenv("CODE_FIX_MAX_TOKENS", "4096")
+            os.getenv("CODE_FIX_MAX_TOKENS", "16384")
         )
         self.CODE_FIX_MAX_FILES: int = int(
             os.getenv("CODE_FIX_MAX_FILES", "15")

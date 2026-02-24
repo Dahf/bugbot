@@ -402,10 +402,19 @@ class CodeFixService:
 
         Returns ``{"message": final_message, "usage": {"input_tokens": ..., "output_tokens": ...}}``.
         """
-        if round_number == 1:
+        is_tool_error_retry = (
+            feedback and feedback.get("type") == "tool_error"
+        )
+
+        if round_number == 1 or is_tool_error_retry:
+            # Round 1 or tool-error retry: send the full bug context so the
+            # model has everything it needs to produce a complete fix.
             prompt = self._build_code_fix_prompt(
                 bug, relevant_paths or [], prefetched_files=prefetched_files
             )
+            if is_tool_error_retry:
+                feedback_text = self._build_feedback_prompt(feedback)
+                prompt = f"{prompt}\n\n---\n\n{feedback_text}"
             messages = [{"role": "user", "content": prompt}]
         else:
             # Build feedback message for iteration rounds
@@ -777,7 +786,13 @@ class CodeFixService:
                     f"Generating fix (round {round_num}/{self.max_rounds})..."
                 )
 
-                # a. Run generation (only pass prefetched files on round 1)
+                # a. Run generation.
+                #    Pass prefetched files on round 1 *and* on tool-error
+                #    retries so the model has full context to try again.
+                include_prefetch = (
+                    round_num == 1
+                    or (feedback and feedback.get("type") == "tool_error")
+                )
                 result = await self._run_generation_round(
                     bug,
                     clone_dir,
@@ -785,7 +800,7 @@ class CodeFixService:
                     round_num,
                     feedback=feedback,
                     relevant_paths=relevant_paths,
-                    prefetched_files=prefetched_files if round_num == 1 else None,
+                    prefetched_files=prefetched_files if include_prefetch else None,
                 )
 
                 # b. Handle tool-call validation errors (model omitted
