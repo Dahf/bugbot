@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** Bug reports that arrive in Discord get triaged, tracked, and fixed with minimal manual effort
-**Current focus:** Phase 3 - GitHub Integration
+**Current focus:** Phase 3 complete -- ready for Phase 4
 
 ## Current Position
 
-Phase: 3 of 4 (GitHub Integration)
-Plan: 2 of 3 in current phase (03-02 complete)
-Status: Executing
-Last activity: 2026-02-24 -- Completed 03-02-PLAN.md (/init command and Create Issue button)
+Phase: 3 of 4 (GitHub Integration) -- COMPLETE
+Plan: 3 of 3 in current phase (03-03 complete)
+Status: Phase Complete
+Last activity: 2026-02-24 -- Completed 03-03-PLAN.md (Draft Fix button and webhook event handlers)
 
-Progress: [███████░░░] 67%
+Progress: [████████░░] 78%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
-- Average duration: ~13 min
-- Total execution time: ~1.2 hours
+- Total plans completed: 7
+- Average duration: ~12 min
+- Total execution time: ~1.4 hours
 
 **By Phase:**
 
@@ -29,14 +29,14 @@ Progress: [███████░░░] 67%
 |-------|-------|-------|----------|
 | 01-foundation-and-ingestion | 2 | ~45 min | ~23 min |
 | 02-ai-analysis | 2 | 14 min | 7 min |
-| 03-github-integration | 2 | 14 min | 7 min |
+| 03-github-integration | 3 | 21 min | 7 min |
 
 **Recent Trend:**
-- Last 5 plans: 6 min, 8 min, 7 min, 7 min
+- Last 5 plans: 8 min, 7 min, 7 min, 7 min, 7 min
 - Trend: Consistent 7 min avg for Phase 2-3 service layers and integration
 
 *Updated after each plan completion*
-| Phase 03 P02 | 7min | 3 tasks | 6 files |
+| Phase 03 P03 | 7min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -73,6 +73,11 @@ Recent decisions affecting current work:
 - [03-02]: RepoSelectView with discord.ui.Select for multi-repo case, auto-select for single repo
 - [03-02]: Create Issue button enabled only when analyzed=True AND issue_created=False
 - [03-02]: _handle_create_issue does NOT revert status on failure (issue may be partially created on GitHub)
+- [03-03]: Branch naming convention: bot/bug-{hash_id}-{slug} with 30-char slug limit
+- [03-03]: Draft Fix re-trigger blocked with link to existing branch/PR
+- [03-03]: build_pr_body handles optional issue_number -- Closes #N only when issue exists
+- [03-03]: _derive_bug_flags helper centralises status-to-flag mapping for all build_bug_view callers
+- [03-03]: Webhook handlers use non-blocking Discord operations (errors logged, 200 returned to GitHub)
 
 ### Pending Todos
 
@@ -86,5 +91,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-24
-Stopped at: Completed 03-02-PLAN.md (/init command and Create Issue button) -- Phase 3 in progress (2/3 plans)
+Stopped at: Completed 03-03-PLAN.md (Draft Fix button and webhook event handlers) -- Phase 3 COMPLETE (3/3 plans)
 Resume file: None
