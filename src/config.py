@@ -44,6 +44,23 @@ class Config:
         self.GITHUB_WEBHOOK_SECRET: str | None = os.getenv("GITHUB_WEBHOOK_SECRET")
         self.GITHUB_APP_NAME: str | None = os.getenv("GITHUB_APP_NAME")
 
+        # AI Code Fix (Phase 5) -- optional
+        self.ANTHROPIC_CODE_FIX_MODEL: str = os.getenv(
+            "ANTHROPIC_CODE_FIX_MODEL", "claude-sonnet-4-5-20250929"
+        )
+        self.CODE_FIX_MAX_ROUNDS: int = int(
+            os.getenv("CODE_FIX_MAX_ROUNDS", "3")
+        )
+        self.CODE_FIX_MAX_TOKENS: int = int(
+            os.getenv("CODE_FIX_MAX_TOKENS", "4096")
+        )
+        self.CODE_FIX_MAX_FILES: int = int(
+            os.getenv("CODE_FIX_MAX_FILES", "15")
+        )
+        self.CODE_FIX_CI_TIMEOUT: int = int(
+            os.getenv("CODE_FIX_CI_TIMEOUT", "300")
+        )
+
     @property
     def github_configured(self) -> bool:
         """Return True when all required GitHub App credentials are set."""
