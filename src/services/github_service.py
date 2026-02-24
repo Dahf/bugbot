@@ -139,7 +139,7 @@ class GitHubService:
         ref_resp = await gh.rest.git.async_get_ref(
             owner, repo, f"heads/{default_branch}"
         )
-        sha = ref_resp.parsed_data.object.sha
+        sha = ref_resp.parsed_data.object_.sha
         return (default_branch, sha)
 
     async def create_branch(
