@@ -113,7 +113,7 @@ Plans:
 **Goal:** Developers can @mention the bot in bug threads to add context notes that get stored, displayed in bug embeds, and injected into AI code fix prompts and PR bodies -- adding a human-in-the-loop context layer between analysis and code generation
 **Depends on:** Phase 5
 **Requirements:** DEV-01, DEV-02, DEV-03, DEV-04, DEV-05, DEV-06, DEV-07, DEV-08
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 06-01-PLAN.md -- Data layer, DeveloperNotesCog (on_message, edit/delete, /view-notes), bot wiring, embed counter

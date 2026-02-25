@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-23)
 ## Current Position
 
 Phase: 6 of 6 (Developer Context via Bot Mentions)
-Plan: 1 of 2 in current phase (06-01 complete)
-Status: In Progress
-Last activity: 2026-02-25 -- Completed 06-01-PLAN.md (Developer notes data layer, cog, and bot wiring)
+Plan: 2 of 2 in current phase (06-02 auto tasks complete, checkpoint pending)
+Status: Checkpoint Pending
+Last activity: 2026-02-25 -- Completed 06-02-PLAN.md auto tasks (Fix pipeline integration)
 
-Progress: [█████████░] 92%
+Progress: [██████████] 96%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 12
+- Total plans completed: 13
 - Average duration: ~9 min
-- Total execution time: ~1.8 hours
+- Total execution time: ~1.9 hours
 
 **By Phase:**
 
@@ -31,10 +31,10 @@ Progress: [█████████░] 92%
 | 02-ai-analysis | 2 | 14 min | 7 min |
 | 03-github-integration | 4 | 24 min | 6 min |
 | 05-ai-code-fix | 3 | 14 min | 5 min |
-| 06-developer-context-via-bot-mentions | 1 | 5 min | 5 min |
+| 06-developer-context-via-bot-mentions | 2 | 10 min | 5 min |
 
 **Recent Trend:**
-- Last 5 plans: 3 min, 3 min, 7 min, 4 min, 5 min
+- Last 5 plans: 3 min, 7 min, 4 min, 5 min, 5 min
 - Trend: Stable 3-7 min execution times
 
 *Updated after each plan completion*
@@ -44,6 +44,7 @@ Progress: [█████████░] 92%
 | Phase 05 P02 | 7min | 2 tasks | 1 files |
 | Phase 05 P03 | 4min | 2 tasks | 3 files |
 | Phase 06 P01 | 5min | 2 tasks | 6 files |
+| Phase 06 P02 | 5min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -106,6 +107,9 @@ Recent decisions affecting current work:
 - [06-01]: Role check on @mention silently ignores non-developers (no error reply) to avoid noise
 - [06-01]: Summary embed counter update is non-fatal (try/except) so note saving never fails due to embed issues
 - [06-01]: No changes to bug_buttons.py -- note_count passed separately to build_summary_embed by callers
+- [06-02]: Non-blocking warning for no developer context (informational ephemeral, not blocking Draft Fix)
+- [06-02]: developer_notes passed as list[dict] | None through entire fix pipeline for type consistency
+- [06-02]: getattr(bot, "notes_repo", None) used for graceful handling when notes_repo attribute missing
 
 ### Roadmap Evolution
 
@@ -124,5 +128,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 06-01-PLAN.md (Developer notes data layer, cog, and bot wiring)
+Stopped at: Completed 06-02-PLAN.md auto tasks (checkpoint pending for human verification)
 Resume file: None

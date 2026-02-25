@@ -48,9 +48,9 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **DEV-03**: Empty @mentions show help message instead of saving
 - [x] **DEV-04**: Editing/deleting a Discord message updates/removes the stored note
 - [x] **DEV-05**: Only users with the Developer role can add context notes
-- [ ] **DEV-06**: Developer notes are injected into AI code fix prompts (both Anthropic and Copilot modes)
-- [ ] **DEV-07**: PR body includes a Developer Notes section with author and timestamp
-- [ ] **DEV-08**: Draft Fix warns when no developer context exists
+- [x] **DEV-06**: Developer notes are injected into AI code fix prompts (both Anthropic and Copilot modes)
+- [x] **DEV-07**: PR body includes a Developer Notes section with author and timestamp
+- [x] **DEV-08**: Draft Fix warns when no developer context exists
 
 ### Dashboard & Reporting
 
@@ -128,9 +128,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEV-03 | Phase 6 | Complete |
 | DEV-04 | Phase 6 | Complete |
 | DEV-05 | Phase 6 | Complete |
-| DEV-06 | Phase 6 | Pending |
-| DEV-07 | Phase 6 | Pending |
-| DEV-08 | Phase 6 | Pending |
+| DEV-06 | Phase 6 | Complete |
+| DEV-07 | Phase 6 | Complete |
+| DEV-08 | Phase 6 | Complete |
 
 **Coverage:**
 - v1 requirements: 38 total
