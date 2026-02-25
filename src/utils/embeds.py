@@ -126,17 +126,18 @@ def build_console_log_messages(bug: dict) -> list[str]:
     return messages
 
 
-def _get_display_title(bug: dict) -> str:
+def _get_display_title(bug: dict, max_length: int = 50) -> str:
     """Get a display title from title or description."""
     title = bug.get("title")
     if title:
+        if len(title) > max_length:
+            return title[: max_length - 3] + "..."
         return title
     description = bug.get("description") or ""
     if description:
-        # Use first line or first 80 chars of description as title
         first_line = description.split("\n")[0]
-        if len(first_line) > 80:
-            return first_line[:77] + "..."
+        if len(first_line) > max_length:
+            return first_line[: max_length - 3] + "..."
         return first_line
     return "Untitled Bug Report"
 
