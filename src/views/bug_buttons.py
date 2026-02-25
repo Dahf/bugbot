@@ -457,6 +457,17 @@ class BugActionButton(
             )
             return
 
+        # Fetch developer notes for this bug
+        developer_notes = []
+        if getattr(bot, "notes_repo", None) is not None:
+            try:
+                developer_notes = await bot.notes_repo.get_notes_for_bug(bug["id"])
+            except Exception as exc:
+                logger.warning(
+                    "Failed to fetch developer notes for bug %s: %s",
+                    self.bug_id, exc,
+                )
+
         if bug["status"] == "dismissed":
             await interaction.followup.send(
                 "Cannot draft a fix for a dismissed bug.", ephemeral=True
@@ -498,6 +509,19 @@ class BugActionButton(
             return
 
         is_copilot = isinstance(bot.code_fix_service, CopilotFixService)
+
+        # Draft Fix warning: no developer context (per locked decision)
+        if not developer_notes:
+            try:
+                await interaction.followup.send(
+                    "\u26a0\ufe0f No developer context provided. "
+                    "Proceeding without developer notes. "
+                    "Tip: @mention me in the bug thread to add "
+                    "context before drafting a fix.",
+                    ephemeral=True,
+                )
+            except discord.HTTPException:
+                pass  # Non-fatal
 
         # 4. Get guild config
         config = await bot.github_config_repo.get_config(interaction.guild_id)
@@ -591,6 +615,7 @@ class BugActionButton(
                 bug=bug,
                 relevant_paths=relevant_paths,
                 progress_callback=post_progress,
+                developer_notes=developer_notes,
             )
 
             # 11. Handle failure
@@ -636,6 +661,7 @@ class BugActionButton(
                     process_log=fix_result.get("process_log", {}),
                     changed_files=fix_result.get("changed_files", {}),
                     validation_passed=fix_result.get("validation_passed", False),
+                    developer_notes=developer_notes,
                 )
                 pr_title = f"fix: {display_title} (#{bug['hash_id']})"
                 pr = await bot.github_service.create_pull_request(
