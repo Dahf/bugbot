@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** Bug reports that arrive in Discord get triaged, tracked, and fixed with minimal manual effort
-**Current focus:** Phase 5 in progress -- AI Code Fix agentic multi-step code generation
+**Current focus:** Phase 6 in progress -- Developer Context via @Bot Mentions
 
 ## Current Position
 
-Phase: 5 of 5 (AI Code Fix)
-Plan: 3 of 3 in current phase (05-03 complete)
-Status: Complete
-Last activity: 2026-02-24 -- Completed 05-03-PLAN.md (Draft Fix integration with CodeFixService)
+Phase: 6 of 6 (Developer Context via Bot Mentions)
+Plan: 1 of 2 in current phase (06-01 complete)
+Status: In Progress
+Last activity: 2026-02-25 -- Completed 06-01-PLAN.md (Developer notes data layer, cog, and bot wiring)
 
-Progress: [██████████] 100%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11
+- Total plans completed: 12
 - Average duration: ~9 min
-- Total execution time: ~1.7 hours
+- Total execution time: ~1.8 hours
 
 **By Phase:**
 
@@ -31,9 +31,10 @@ Progress: [██████████] 100%
 | 02-ai-analysis | 2 | 14 min | 7 min |
 | 03-github-integration | 4 | 24 min | 6 min |
 | 05-ai-code-fix | 3 | 14 min | 5 min |
+| 06-developer-context-via-bot-mentions | 1 | 5 min | 5 min |
 
 **Recent Trend:**
-- Last 5 plans: 7 min, 3 min, 3 min, 7 min, 4 min
+- Last 5 plans: 3 min, 3 min, 7 min, 4 min, 5 min
 - Trend: Stable 3-7 min execution times
 
 *Updated after each plan completion*
@@ -42,6 +43,7 @@ Progress: [██████████] 100%
 | Phase 05 P01 | 3min | 2 tasks | 2 files |
 | Phase 05 P02 | 7min | 2 tasks | 1 files |
 | Phase 05 P03 | 4min | 2 tasks | 3 files |
+| Phase 06 P01 | 5min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -99,6 +101,11 @@ Recent decisions affecting current work:
 - [05-03]: Completion embed uses green for full validation pass, yellow for partial
 - [05-03]: Failed code fix still creates PR if files were changed (best-attempt approach)
 - [05-03]: Progress callback posts wrench emoji prefix messages in thread for visual consistency
+- [06-01]: DeveloperNotesRepository defines helpers locally rather than importing from bug.py to avoid tight coupling
+- [06-01]: Attachment URLs stored as JSON array string consistent with console_logs pattern
+- [06-01]: Role check on @mention silently ignores non-developers (no error reply) to avoid noise
+- [06-01]: Summary embed counter update is non-fatal (try/except) so note saving never fails due to embed issues
+- [06-01]: No changes to bug_buttons.py -- note_count passed separately to build_summary_embed by callers
 
 ### Roadmap Evolution
 
@@ -116,6 +123,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-24
-Stopped at: Completed 05-03-PLAN.md (Draft Fix integration with CodeFixService) -- Phase 5 complete
+Last session: 2026-02-25
+Stopped at: Completed 06-01-PLAN.md (Developer notes data layer, cog, and bot wiring)
 Resume file: None
