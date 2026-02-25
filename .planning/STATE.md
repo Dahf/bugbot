@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-23)
 
 **Core value:** Bug reports that arrive in Discord get triaged, tracked, and fixed with minimal manual effort
-**Current focus:** Phase 6 in progress -- Developer Context via @Bot Mentions
+**Current focus:** All phases complete -- Project finished
 
 ## Current Position
 
 Phase: 6 of 6 (Developer Context via Bot Mentions)
-Plan: 2 of 2 in current phase (06-02 auto tasks complete, checkpoint pending)
-Status: Checkpoint Pending
-Last activity: 2026-02-25 -- Completed 06-02-PLAN.md auto tasks (Fix pipeline integration)
+Plan: 2 of 2 in current phase (06-02 complete, verified end-to-end)
+Status: Complete
+Last activity: 2026-02-25 -- Completed 06-02-PLAN.md (Fix pipeline integration, human-verified)
 
-Progress: [██████████] 96%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -110,6 +110,7 @@ Recent decisions affecting current work:
 - [06-02]: Non-blocking warning for no developer context (informational ephemeral, not blocking Draft Fix)
 - [06-02]: developer_notes passed as list[dict] | None through entire fix pipeline for type consistency
 - [06-02]: getattr(bot, "notes_repo", None) used for graceful handling when notes_repo attribute missing
+- [06-02]: on_raw_message_delete fetches note before deletion so bug_id is available for embed update
 
 ### Roadmap Evolution
 
@@ -128,5 +129,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 06-02-PLAN.md auto tasks (checkpoint pending for human verification)
+Stopped at: Project complete -- all 6 phases executed and verified
 Resume file: None

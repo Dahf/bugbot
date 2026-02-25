@@ -32,11 +32,14 @@ key-files:
     - src/services/copilot_fix_service.py
     - src/utils/github_templates.py
     - src/views/bug_buttons.py
+    - src/cogs/developer_notes.py
+    - src/models/bug.py
 
 key-decisions:
   - "Non-blocking warning for no developer context (informational, not blocking Draft Fix)"
   - "developer_notes passed as list[dict] through entire fix pipeline for consistency"
   - "getattr(bot, 'notes_repo', None) used for graceful handling when notes_repo missing"
+  - "on_raw_message_delete fetches note before deletion so bug_id is available for embed update"
 
 patterns-established:
   - "Optional developer_notes parameter threaded through service chain: handler -> generate_fix -> prompt builder"
@@ -57,9 +60,9 @@ completed: 2026-02-25
 
 - **Duration:** 5 min
 - **Started:** 2026-02-25T09:35:06Z
-- **Completed:** 2026-02-25T09:40:33Z
-- **Tasks:** 2 of 2 auto tasks complete (checkpoint pending)
-- **Files modified:** 4
+- **Completed:** 2026-02-25
+- **Tasks:** 3/3 (2 auto + 1 human-verify checkpoint approved)
+- **Files modified:** 6
 
 ## Accomplishments
 - Developer notes from @mentions now flow into the Anthropic code fix prompt for richer AI context
@@ -74,6 +77,11 @@ Each task was committed atomically:
 
 1. **Task 1: Inject developer notes into fix services and PR body template** - `b17fa59` (feat)
 2. **Task 2: Draft Fix handler fetches notes, shows no-context warning, and passes notes to fix service** - `43ea7be` (feat)
+3. **Task 3: Verify developer context flow end-to-end** - human-verify checkpoint approved
+
+**Bug fix during verification:** `ead6977` (fix) - embed not updating on note deletion
+
+**Plan metadata:** `989561f` (docs: complete plan)
 
 ## Files Created/Modified
 - `src/services/code_fix_service.py` - Added developer_notes param to _build_code_fix_prompt, _run_generation_round, and generate_fix; notes section inserted in prompt
@@ -88,18 +96,38 @@ Each task was committed atomically:
 
 ## Deviations from Plan
 
-None - plan executed exactly as written.
+### Auto-fixed Issues
+
+**1. [Rule 1 - Bug] Embed not updating on note deletion**
+- **Found during:** Task 3 (human verification)
+- **Issue:** on_raw_message_delete handler deleted the note before fetching the bug_id, so the embed counter could not be updated afterward
+- **Fix:** Fetch the note first to get bug_id, then delete, then update the embed; also added get_bug_by_id helper to BugRepository
+- **Files modified:** `src/cogs/developer_notes.py`, `src/models/bug.py`
+- **Committed in:** `ead6977`
+
+---
+
+**Total deviations:** 1 auto-fixed (1 bug)
+**Impact on plan:** Essential fix for correct embed behavior on note deletion. No scope creep.
 
 ## Issues Encountered
-None
+- Embed counter was not decrementing on note deletion because the handler deleted the note before looking up the bug_id. Fixed by reordering operations.
 
 ## User Setup Required
 None - no external service configuration required.
 
 ## Next Phase Readiness
-- Task 3 (human-verify checkpoint) pending -- requires live bot testing to verify end-to-end flow
-- All code changes committed and verified via syntax checks and import validation
+- Phase 6 complete -- all plans executed and verified end-to-end
+- Full feature set: @mention notes, embed counters, /view-notes, AI prompt injection, PR body traceability, Draft Fix warning
+- Project is at 100% completion (all 6 phases done)
+
+## Self-Check: PASSED
+
+- All source files exist and parse without errors
+- All task commits verified in git log
+- Bug fix commit `ead6977` verified in git log
+- SUMMARY.md reflects final approved state
 
 ---
 *Phase: 06-developer-context-via-bot-mentions*
-*Completed: 2026-02-25 (auto tasks -- checkpoint pending)*
+*Completed: 2026-02-25*
