@@ -41,6 +41,17 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **GH-09**: Bot handles GitHub API rate limits with retry and backoff
 - [x] **GH-10**: Bot cleans up merged/stale branches
 
+### Developer Context
+
+- [ ] **DEV-01**: Developer can @mention the bot in a bug thread to add context notes
+- [ ] **DEV-02**: Bot confirms note with emoji reaction and reply showing running count
+- [ ] **DEV-03**: Empty @mentions show help message instead of saving
+- [ ] **DEV-04**: Editing/deleting a Discord message updates/removes the stored note
+- [ ] **DEV-05**: Only users with the Developer role can add context notes
+- [ ] **DEV-06**: Developer notes are injected into AI code fix prompts (both Anthropic and Copilot modes)
+- [ ] **DEV-07**: PR body includes a Developer Notes section with author and timestamp
+- [ ] **DEV-08**: Draft Fix warns when no developer context exists
+
 ### Dashboard & Reporting
 
 - [ ] **DASH-01**: Bot displays a persistent bug dashboard embed showing open bugs sorted by priority
@@ -112,10 +123,18 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DASH-03 | Phase 4 | Pending |
 | DASH-04 | Phase 4 | Pending |
 | DASH-05 | Phase 4 | Pending |
+| DEV-01 | Phase 6 | Pending |
+| DEV-02 | Phase 6 | Pending |
+| DEV-03 | Phase 6 | Pending |
+| DEV-04 | Phase 6 | Pending |
+| DEV-05 | Phase 6 | Pending |
+| DEV-06 | Phase 6 | Pending |
+| DEV-07 | Phase 6 | Pending |
+| DEV-08 | Phase 6 | Pending |
 
 **Coverage:**
-- v1 requirements: 30 total
-- Mapped to phases: 30
+- v1 requirements: 38 total
+- Mapped to phases: 38
 - Unmapped: 0
 
 ---
