@@ -103,6 +103,7 @@ Recent decisions affecting current work:
 ### Roadmap Evolution
 
 - Phase 5 added: AI Code Fix — Agentic multi-step code generation im Draft Fix Flow
+- Phase 6 added: Developer Context via @Bot Mentions
 
 ### Pending Todos
 

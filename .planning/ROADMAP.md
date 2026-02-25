@@ -107,3 +107,12 @@ Plans:
 - [ ] 05-01-PLAN.md — GitHub service extensions (atomic commit, CI polling, install token) + config
 - [ ] 05-02-PLAN.md — CodeFixService: agentic loop with clone, tool use, quality gates, iteration
 - [ ] 05-03-PLAN.md — Integration: rewrite Draft Fix button, progress messages, completion embed, PR templates
+
+### Phase 6: Developer Context via @Bot Mentions
+
+**Goal:** [To be planned]
+**Depends on:** Phase 5
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 6 to break down)
