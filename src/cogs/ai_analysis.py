@@ -175,7 +175,11 @@ class AIAnalysisCog(commands.Cog):
         description="Re-create a bug in the DB from an existing bug thread",
     )
     async def recover_bug(self, interaction: discord.Interaction) -> None:
-        """Recover a bug record by parsing the thread's embed and detail message."""
+        """Recover a bug record by parsing the thread's embed and detail message.
+
+        Recovers: description, severity, app_version, steps, reporter,
+        device_info, console_logs, AI analysis data, GitHub issue/PR links.
+        """
         await interaction.response.defer(ephemeral=True)
 
         # Must be in a thread
@@ -203,10 +207,10 @@ class AIAnalysisCog(commands.Cog):
             )
             return
 
-        embed = starter.embeds[0]
+        summary_embed = starter.embeds[0]
 
         # Parse hash_id from embed title: "#hash_id — title" or "[DISMISSED] #hash_id — title"
-        title_text = embed.title or ""
+        title_text = summary_embed.title or ""
         match = re.search(r"#([a-f0-9]{8})", title_text)
         if not match:
             await interaction.followup.send(
@@ -225,22 +229,53 @@ class AIAnalysisCog(commands.Cog):
             )
             return
 
-        # Extract fields from embed
-        severity = None
-        for field in embed.fields:
-            if field.name == "Severity":
-                severity = field.value.lower() if field.value else None
+        # --- Parse summary embed fields ---
+        embed_fields = {f.name: f.value for f in summary_embed.fields}
+        severity = embed_fields.get("Severity", "").lower().strip() or None
 
-        # Parse the detail message (first message in thread) for description etc.
+        # GitHub issue link: "[#19](https://...)"
+        github_issue_number = None
+        github_issue_url = None
+        gh_issue_val = embed_fields.get("GitHub Issue", "")
+        gh_issue_match = re.search(r"\[#(\d+)\]\((https?://[^)]+)\)", gh_issue_val)
+        if gh_issue_match:
+            github_issue_number = int(gh_issue_match.group(1))
+            github_issue_url = gh_issue_match.group(2)
+
+        # PR link: "[PR #21](https://...)"
+        github_pr_number = None
+        github_pr_url = None
+        gh_pr_val = embed_fields.get("Pull Request", "")
+        gh_pr_match = re.search(r"\[PR #(\d+)\]\((https?://[^)]+)\)", gh_pr_val)
+        if gh_pr_match:
+            github_pr_number = int(gh_pr_match.group(1))
+            github_pr_url = gh_pr_match.group(2)
+
+        # Priority from embed
+        priority = None
+        priority_val = embed_fields.get("Priority", "")
+        priority_match = re.search(r"\*\*(P[1-4])\*\*", priority_val)
+        if priority_match:
+            priority = priority_match.group(1)
+
+        # --- Parse thread messages ---
         description = None
         app_version = None
+        device_info = None
         steps = None
         reporter_name = None
+        console_logs_raw = None
+        analysis_data = {}
+        analysis_message_id = None
+
         try:
-            messages = [m async for m in thread.history(limit=5, oldest_first=True)]
+            messages = [m async for m in thread.history(limit=20, oldest_first=True)]
             for msg in messages:
-                if msg.author.id == self.bot.user.id and msg.content.startswith("## Bug Report"):
-                    # Parse fields from detail text
+                if msg.author.id != self.bot.user.id:
+                    continue
+
+                # Detail message: "## Bug Report #hash_id"
+                if msg.content.startswith("## Bug Report"):
                     text = msg.content
                     desc_match = re.search(
                         r"\*\*Description:\*\*\s*(.+?)(?:\n\n|\Z)", text, re.DOTALL
@@ -250,21 +285,49 @@ class AIAnalysisCog(commands.Cog):
                     ver_match = re.search(r"\*\*App Version:\*\*\s*(.+)", text)
                     if ver_match and ver_match.group(1).strip() != "N/A":
                         app_version = ver_match.group(1).strip()
+                    dev_match = re.search(r"\*\*Device:\*\*\s*(.+)", text)
+                    if dev_match and dev_match.group(1).strip() != "N/A":
+                        device_info = dev_match.group(1).strip()
                     steps_match = re.search(
                         r"\*\*Steps to Reproduce:\*\*\s*(.+?)(?:\n\n|\Z)",
-                        text,
-                        re.DOTALL,
+                        text, re.DOTALL,
                     )
                     if steps_match:
                         steps = steps_match.group(1).strip()
                     rep_match = re.search(r"\*\*Reporter:\*\*\s*(.+)", text)
                     if rep_match and rep_match.group(1).strip() != "N/A":
                         reporter_name = rep_match.group(1).strip()
-                    break
-        except Exception as exc:
-            logger.warning("Could not parse thread detail for recovery: %s", exc)
 
-        # Create the bug in the DB
+                # Console logs: "**Console Logs:**\n```...```"
+                elif msg.content.startswith("**Console Logs:**"):
+                    log_match = re.search(r"```\n?(.+?)\n?```", msg.content, re.DOTALL)
+                    if log_match:
+                        console_logs_raw = log_match.group(1)
+
+                # Analysis embed
+                if msg.embeds:
+                    for emb in msg.embeds:
+                        if emb.title and "AI Analysis" in emb.title:
+                            analysis_message_id = msg.id
+                            afields = {f.name: f.value for f in emb.fields}
+                            analysis_data = {
+                                "root_cause": afields.get("Root Cause"),
+                                "affected_area": afields.get("Affected Area"),
+                                "severity": afields.get("Severity", "").lower().strip() or None,
+                                "suggested_fix": afields.get("Suggested Fix"),
+                            }
+                            # Priority: "**P2** -- reasoning"
+                            pri_val = afields.get("Priority", "")
+                            pri_match = re.search(
+                                r"\*\*(P[1-4])\*\*\s*--\s*(.+)", pri_val
+                            )
+                            if pri_match:
+                                analysis_data["priority"] = pri_match.group(1)
+                                analysis_data["priority_reasoning"] = pri_match.group(2).strip()
+        except Exception as exc:
+            logger.warning("Could not fully parse thread for recovery: %s", exc)
+
+        # --- Create the bug in the DB ---
         raw_payload = {
             "title": None,
             "description": description,
@@ -272,6 +335,8 @@ class AIAnalysisCog(commands.Cog):
             "app_version": app_version,
             "steps_to_reproduce": steps,
             "reporter_name": reporter_name,
+            "device_info": device_info,
+            "console_logs": console_logs_raw,
         }
         bug = await self.bot.bug_repo.create_bug(raw_payload, hash_id)
 
@@ -280,8 +345,42 @@ class AIAnalysisCog(commands.Cog):
             hash_id, starter.id, thread.id, thread.parent_id
         )
 
+        # Store analysis data if found
+        recovered_parts = ["description", "message refs"]
+        if analysis_data.get("root_cause"):
+            analysis_data.setdefault("priority", priority or "P3")
+            analysis_data.setdefault("priority_reasoning", "Recovered from thread")
+            analysis_data["usage"] = {"total_tokens": 0}
+            await self.bot.bug_repo.store_analysis(
+                hash_id, analysis_data, "recovery"
+            )
+            recovered_parts.append("AI analysis")
+            if analysis_message_id:
+                await self.bot.bug_repo.store_analysis_message_id(
+                    hash_id, analysis_message_id
+                )
+
+        # Store GitHub issue if found
+        if github_issue_number:
+            await self.bot.bug_repo.store_github_issue(
+                hash_id, github_issue_number, github_issue_url, "recovery"
+            )
+            recovered_parts.append(f"GitHub issue #{github_issue_number}")
+
+        # Store GitHub PR if found
+        if github_pr_number:
+            await self.bot.bug_repo.store_github_pr(
+                hash_id, github_pr_number, github_pr_url, "recovery"
+            )
+            recovered_parts.append(f"PR #{github_pr_number}")
+
+        if console_logs_raw:
+            recovered_parts.append("console logs")
+
+        parts_str = ", ".join(recovered_parts)
         await interaction.followup.send(
-            f"Bug **#{hash_id}** recovered. Buttons should work again.",
+            f"Bug **#{hash_id}** recovered: {parts_str}.\n"
+            "Buttons should work again.",
             ephemeral=True,
         )
         logger.info("Bug #%s recovered from thread by %s", hash_id, interaction.user)
