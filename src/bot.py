@@ -10,6 +10,7 @@ from discord.ext import commands
 from src.config import Config
 from src.models.bug import BugRepository
 from src.models.database import setup_database, close_database
+from src.models.developer_notes import DeveloperNotesRepository
 from src.models.github_config import GitHubConfigRepository
 from src.services.ai_analysis import AIAnalysisService
 from src.services.code_fix_service import CodeFixService
@@ -25,7 +26,8 @@ class BugBot(commands.Bot):
 
     def __init__(self, config: Config) -> None:
         intents = discord.Intents.default()
-        # message_content intent NOT needed -- we use buttons/interactions only
+        # message_content intent needed for Phase 6 @mention context notes
+        intents.message_content = True
         super().__init__(command_prefix="!", intents=intents)
 
         self.config = config
@@ -35,6 +37,7 @@ class BugBot(commands.Bot):
         self.github_service: GitHubService | None = None
         self.github_config_repo: GitHubConfigRepository | None = None
         self.code_fix_service: CodeFixService | CopilotFixService | None = None
+        self.notes_repo: DeveloperNotesRepository | None = None
         self.processing_queue: asyncio.Queue = asyncio.Queue()
 
     async def setup_hook(self) -> None:
@@ -47,7 +50,9 @@ class BugBot(commands.Bot):
         # Initialise database and repository
         self.db = await setup_database(self.config.DATABASE_PATH)
         self.bug_repo = BugRepository(self.db)
+        self.notes_repo = DeveloperNotesRepository(self.db)
         logger.info("Database initialised at %s", self.config.DATABASE_PATH)
+        logger.info("Developer notes repository initialized")
 
         # Initialize AI analysis service (optional -- bot works without it)
         if self.config.ANTHROPIC_API_KEY:
@@ -128,6 +133,7 @@ class BugBot(commands.Bot):
             "src.cogs.bug_reports",
             "src.cogs.ai_analysis",
             "src.cogs.github_integration",
+            "src.cogs.developer_notes",
         ]
         for ext in cog_extensions:
             try:

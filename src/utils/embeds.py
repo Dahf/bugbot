@@ -150,7 +150,7 @@ def _get_reporter_display(bug: dict) -> str:
     return user_id
 
 
-def build_summary_embed(bug: dict) -> discord.Embed:
+def build_summary_embed(bug: dict, *, note_count: int | None = None) -> discord.Embed:
     """Build the summary embed posted to the main bug-reports channel.
 
     Shows title/description, user, status, and device info.
@@ -229,6 +229,14 @@ def build_summary_embed(bug: dict) -> discord.Embed:
         embed.add_field(
             name="Pull Request",
             value=f"[PR #{pr_num}]({github_pr_url})",
+            inline=True,
+        )
+
+    # Developer notes counter -- shown when notes exist (Phase 6)
+    if note_count is not None and note_count > 0:
+        embed.add_field(
+            name="Developer Notes",
+            value=f"\U0001f4dd {note_count}",
             inline=True,
         )
 
