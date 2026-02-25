@@ -264,12 +264,12 @@ class AIAnalysisCog(commands.Cog):
         device_info = None
         steps = None
         reporter_name = None
-        console_logs_raw = None
+        console_log_parts: list[str] = []
         analysis_data = {}
         analysis_message_id = None
 
         try:
-            messages = [m async for m in thread.history(limit=20, oldest_first=True)]
+            messages = [m async for m in thread.history(limit=50, oldest_first=True)]
             for msg in messages:
                 if msg.author.id != self.bot.user.id:
                     continue
@@ -298,11 +298,12 @@ class AIAnalysisCog(commands.Cog):
                     if rep_match and rep_match.group(1).strip() != "N/A":
                         reporter_name = rep_match.group(1).strip()
 
-                # Console logs: "**Console Logs:**\n```...```"
-                elif msg.content.startswith("**Console Logs:**"):
+                # Console logs: may span multiple messages
+                # "**Console Logs:**" or "**Console Logs (continued N/M):**"
+                elif msg.content.startswith("**Console Logs"):
                     log_match = re.search(r"```\n?(.+?)\n?```", msg.content, re.DOTALL)
                     if log_match:
-                        console_logs_raw = log_match.group(1)
+                        console_log_parts.append(log_match.group(1))
 
                 # Analysis embed
                 if msg.embeds:
@@ -326,6 +327,9 @@ class AIAnalysisCog(commands.Cog):
                                 analysis_data["priority_reasoning"] = pri_match.group(2).strip()
         except Exception as exc:
             logger.warning("Could not fully parse thread for recovery: %s", exc)
+
+        # --- Combine console log parts ---
+        console_logs_raw = "\n".join(console_log_parts) if console_log_parts else None
 
         # --- Create the bug in the DB ---
         raw_payload = {

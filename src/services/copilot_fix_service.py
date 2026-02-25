@@ -201,33 +201,32 @@ class CopilotFixService:
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
 
-            # Check open AND recently closed/merged PRs
-            for state in ("open", "closed"):
-                url = (
-                    f"{GITHUB_API}/repos/{owner}/{repo}/pulls"
-                    f"?state={state}&sort=created&direction=desc&per_page=10"
-                )
-                async with session.get(url) as resp:
-                    resp.raise_for_status()
-                    prs = await resp.json()
+            url = (
+                f"{GITHUB_API}/repos/{owner}/{repo}/pulls"
+                f"?state=all&sort=created&direction=desc&per_page=10"
+            )
+            async with session.get(url) as resp:
+                resp.raise_for_status()
+                prs = await resp.json()
 
-                for pr in prs:
-                    author = pr.get("user", {}).get("login", "")
-                    head_ref = pr.get("head", {}).get("ref", "")
-                    # Match by Copilot bot author + branch prefix.
-                    # Issue number check is optional (Copilot doesn't
-                    # always reference the issue in title/body).
-                    if author == COPILOT_BOT and head_ref.startswith("copilot/"):
-                        logger.info(
-                            "Found Copilot PR #%s (%s) for issue #%s",
-                            pr["number"], head_ref, issue_number,
-                        )
-                        return {
-                            "number": pr["number"],
-                            "html_url": pr["html_url"],
-                            "title": pr["title"],
-                            "branch": head_ref,
-                        }
+            for pr in prs:
+                author = pr.get("user", {}).get("login", "")
+                head_ref = pr.get("head", {}).get("ref", "")
+                if author == COPILOT_BOT and head_ref.startswith("copilot/"):
+                    body = pr.get("body") or ""
+                    ref = f"#{issue_number}"
+                    if ref not in body and ref not in (pr.get("title") or ""):
+                        continue
+                    logger.info(
+                        "Found Copilot PR #%s (%s) for issue #%s",
+                        pr["number"], head_ref, issue_number,
+                    )
+                    return {
+                        "number": pr["number"],
+                        "html_url": pr["html_url"],
+                        "title": pr["title"],
+                        "branch": head_ref,
+                    }
 
             if progress_callback:
                 minutes, seconds = divmod(elapsed, 60)
