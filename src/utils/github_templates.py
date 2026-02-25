@@ -273,13 +273,19 @@ def get_priority_label(priority: str | None) -> tuple[str, str] | None:
 def get_area_label(area: str | None) -> tuple[str, str] | None:
     """Map an affected area string to a (label_name, hex_color) tuple.
 
-    Returns None if area is falsy.
+    Returns None if area is falsy.  The AI sometimes returns verbose
+    descriptions; we take only the text before the first comma or
+    period to keep the label short and GitHub-friendly.
     """
     if not area:
         return None
-    label = f"area:{area.lower().strip()}"
+    # Take only the first phrase (before comma, period, or semicolon)
+    short = area.split(",")[0].split(".")[0].split(";")[0].strip().lower()
+    if not short:
+        return None
+    label = f"area:{short}"
     if len(label) > 50:
-        label = label[:47] + "..."
+        label = label[:50]
     return (label, "6366f1")
 
 
