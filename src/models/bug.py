@@ -119,6 +119,14 @@ class BugRepository:
             row = await cursor.fetchone()
             return _row_to_dict(row) if row else None
 
+    async def get_bug_by_thread_id(self, thread_id: int) -> dict | None:
+        """Return a bug by its Discord thread_id, or None."""
+        async with self.db.execute(
+            "SELECT * FROM bugs WHERE thread_id = ?", (thread_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return _row_to_dict(row) if row else None
+
     async def get_bug_by_analysis_message(self, message_id: int) -> dict | None:
         """Return a bug by its analysis embed *message_id*, or ``None``."""
         async with self.db.execute(

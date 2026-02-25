@@ -127,6 +127,45 @@ async def migrate_add_github_columns(db: aiosqlite.Connection) -> None:
     await db.commit()
 
 
+DEVELOPER_NOTES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS developer_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bug_id INTEGER NOT NULL REFERENCES bugs(id),
+    discord_message_id INTEGER UNIQUE NOT NULL,
+    author_id INTEGER NOT NULL,
+    author_name TEXT NOT NULL,
+    content TEXT NOT NULL,
+    attachment_urls TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_developer_notes_bug_id ON developer_notes(bug_id);
+CREATE INDEX IF NOT EXISTS idx_developer_notes_message_id ON developer_notes(discord_message_id);
+"""
+
+
+async def migrate_add_developer_notes(db: aiosqlite.Connection) -> None:
+    """Add Phase 6 developer_notes table and bugs.thread_id index if missing.
+
+    Idempotent -- safe to run multiple times.
+    """
+    # Check if developer_notes table already exists
+    async with db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='developer_notes'"
+    ) as cursor:
+        row = await cursor.fetchone()
+
+    if row is None:
+        await db.executescript(DEVELOPER_NOTES_SCHEMA)
+        await db.commit()
+
+    # Add index on bugs.thread_id for efficient thread-to-bug lookups
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bugs_thread_id ON bugs(thread_id)"
+    )
+    await db.commit()
+
+
 async def setup_database(db_path: str = "data/bugs.db") -> aiosqlite.Connection:
     """Create (or open) the SQLite database and ensure the schema exists.
 
@@ -148,6 +187,9 @@ async def setup_database(db_path: str = "data/bugs.db") -> aiosqlite.Connection:
 
     # Migrate existing databases to include Phase 3 GitHub columns
     await migrate_add_github_columns(db)
+
+    # Migrate existing databases to include Phase 6 developer_notes table
+    await migrate_add_developer_notes(db)
 
     return db
 
