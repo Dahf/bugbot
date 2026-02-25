@@ -1,6 +1,7 @@
-"""AI analysis cog -- reaction tracking and priority override command."""
+"""AI analysis cog -- reaction tracking, priority override, and bug recovery."""
 
 import logging
+import re
 
 import discord
 from discord import app_commands
@@ -163,6 +164,127 @@ class AIAnalysisCog(commands.Cog):
             priority.value,
             interaction.user,
         )
+
+
+    # ------------------------------------------------------------------
+    # /recover-bug: re-create a bug record from an existing thread
+    # ------------------------------------------------------------------
+
+    @app_commands.command(
+        name="recover-bug",
+        description="Re-create a bug in the DB from an existing bug thread",
+    )
+    async def recover_bug(self, interaction: discord.Interaction) -> None:
+        """Recover a bug record by parsing the thread's embed and detail message."""
+        await interaction.response.defer(ephemeral=True)
+
+        # Must be in a thread
+        if not isinstance(interaction.channel, discord.Thread):
+            await interaction.followup.send(
+                "Run this command inside a bug thread.", ephemeral=True
+            )
+            return
+
+        thread = interaction.channel
+
+        # Get the starter (parent) message with the summary embed
+        try:
+            starter = await thread.parent.fetch_message(thread.id)
+        except discord.HTTPException:
+            await interaction.followup.send(
+                "Could not fetch the thread's starter message.",
+                ephemeral=True,
+            )
+            return
+
+        if not starter.embeds:
+            await interaction.followup.send(
+                "No embed found on the starter message.", ephemeral=True
+            )
+            return
+
+        embed = starter.embeds[0]
+
+        # Parse hash_id from embed title: "#hash_id — title" or "[DISMISSED] #hash_id — title"
+        title_text = embed.title or ""
+        match = re.search(r"#([a-f0-9]{8})", title_text)
+        if not match:
+            await interaction.followup.send(
+                f"Could not parse bug hash from embed title: `{title_text}`",
+                ephemeral=True,
+            )
+            return
+
+        hash_id = match.group(1)
+
+        # Check if already in DB
+        existing = await self.bot.bug_repo.get_bug(hash_id)
+        if existing is not None:
+            await interaction.followup.send(
+                f"Bug **#{hash_id}** already exists in the DB.", ephemeral=True
+            )
+            return
+
+        # Extract fields from embed
+        severity = None
+        for field in embed.fields:
+            if field.name == "Severity":
+                severity = field.value.lower() if field.value else None
+
+        # Parse the detail message (first message in thread) for description etc.
+        description = None
+        app_version = None
+        steps = None
+        reporter_name = None
+        try:
+            messages = [m async for m in thread.history(limit=5, oldest_first=True)]
+            for msg in messages:
+                if msg.author.id == self.bot.user.id and msg.content.startswith("## Bug Report"):
+                    # Parse fields from detail text
+                    text = msg.content
+                    desc_match = re.search(
+                        r"\*\*Description:\*\*\s*(.+?)(?:\n\n|\Z)", text, re.DOTALL
+                    )
+                    if desc_match:
+                        description = desc_match.group(1).strip()
+                    ver_match = re.search(r"\*\*App Version:\*\*\s*(.+)", text)
+                    if ver_match and ver_match.group(1).strip() != "N/A":
+                        app_version = ver_match.group(1).strip()
+                    steps_match = re.search(
+                        r"\*\*Steps to Reproduce:\*\*\s*(.+?)(?:\n\n|\Z)",
+                        text,
+                        re.DOTALL,
+                    )
+                    if steps_match:
+                        steps = steps_match.group(1).strip()
+                    rep_match = re.search(r"\*\*Reporter:\*\*\s*(.+)", text)
+                    if rep_match and rep_match.group(1).strip() != "N/A":
+                        reporter_name = rep_match.group(1).strip()
+                    break
+        except Exception as exc:
+            logger.warning("Could not parse thread detail for recovery: %s", exc)
+
+        # Create the bug in the DB
+        raw_payload = {
+            "title": None,
+            "description": description,
+            "severity": severity,
+            "app_version": app_version,
+            "steps_to_reproduce": steps,
+            "reporter_name": reporter_name,
+        }
+        bug = await self.bot.bug_repo.create_bug(raw_payload, hash_id)
+
+        # Update message refs so buttons work
+        await self.bot.bug_repo.update_message_refs(
+            hash_id, starter.id, thread.id, thread.parent_id
+        )
+
+        await interaction.followup.send(
+            f"Bug **#{hash_id}** recovered. Buttons should work again.",
+            ephemeral=True,
+        )
+        logger.info("Bug #%s recovered from thread by %s", hash_id, interaction.user)
 
 
 async def setup(bot: commands.Bot) -> None:
