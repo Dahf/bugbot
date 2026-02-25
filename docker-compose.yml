@@ -27,6 +27,6 @@ services:
       - GITHUB_APP_NAME=${GITHUB_APP_NAME}
       - GITHUB_PAT=${GITHUB_PAT}
       - COPILOT_SESSION_TIMEOUT=${COPILOT_SESSION_TIMEOUT:-3600}  
-      - CODE_FIX_MODE=${CODE_FIX_MODE:-anthropic}
+      - CODE_FIX_MODE=${CODE_FIX_MODE:-github}
 volumes:
   bot-data:
