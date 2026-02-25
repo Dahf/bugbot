@@ -119,6 +119,14 @@ class BugRepository:
             row = await cursor.fetchone()
             return _row_to_dict(row) if row else None
 
+    async def get_bug_by_id(self, bug_id: int) -> dict | None:
+        """Return a single bug by its integer primary key, or ``None``."""
+        async with self.db.execute(
+            "SELECT * FROM bugs WHERE id = ?", (bug_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return _row_to_dict(row) if row else None
+
     async def get_bug_by_thread_id(self, thread_id: int) -> dict | None:
         """Return a bug by its Discord thread_id, or None."""
         async with self.db.execute(

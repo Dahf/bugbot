@@ -140,6 +140,11 @@ class DeveloperNotesCog(commands.Cog):
         self, payload: discord.RawMessageDeleteEvent
     ) -> None:
         """Remove a stored note when its Discord message is deleted."""
+        # Fetch note first to get bug_id for embed update
+        note = await self.notes_repo.get_note_by_message_id(payload.message_id)
+        if note is None:
+            return
+
         deleted = await self.notes_repo.delete_note_by_message_id(payload.message_id)
         if deleted:
             logger.info(
@@ -147,6 +152,27 @@ class DeveloperNotesCog(commands.Cog):
                 payload.message_id,
                 payload.channel_id,
             )
+
+            # Update summary embed with new note count (non-fatal)
+            try:
+                bug = await self.bot.bug_repo.get_bug_by_id(note["bug_id"])
+                if bug:
+                    channel_id = bug.get("channel_id")
+                    message_id = bug.get("message_id")
+                    if channel_id and message_id:
+                        channel = self.bot.get_channel(channel_id)
+                        if channel is not None:
+                            msg = await channel.fetch_message(message_id)
+                            note_count = await self.notes_repo.count_notes(bug["id"])
+                            new_embed = build_summary_embed(bug, note_count=note_count)
+                            flags = _derive_bug_flags(bug)
+                            new_view = build_bug_view(bug["hash_id"], **flags)
+                            await msg.edit(embed=new_embed, view=new_view)
+            except Exception:
+                logger.warning(
+                    "Could not update embed after note deletion for message_id=%s",
+                    payload.message_id,
+                )
 
     # ------------------------------------------------------------------
     # on_raw_message_edit: update note when Discord message is edited
