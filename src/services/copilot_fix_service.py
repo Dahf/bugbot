@@ -341,16 +341,36 @@ class CopilotFixService:
                 owner, repo
             )
 
-            # 2. Create issue
-            await _progress("Creating GitHub issue for Copilot agent...")
-            issue = await self._create_issue(
-                session, owner, repo, bug,
-                developer_notes=developer_notes,
-            )
+            # 2. Reuse existing issue or create a new one
+            existing_issue_number = bug.get("github_issue_number")
+            if existing_issue_number:
+                await _progress(
+                    f"Reusing existing issue #{existing_issue_number}..."
+                )
+                # Fetch node_id for Copilot assignment
+                issue_url = (
+                    f"{GITHUB_API}/repos/{owner}/{repo}"
+                    f"/issues/{existing_issue_number}"
+                )
+                async with session.get(issue_url) as resp:
+                    resp.raise_for_status()
+                    issue_data = await resp.json()
+                issue = {
+                    "number": issue_data["number"],
+                    "html_url": issue_data["html_url"],
+                    "node_id": issue_data["node_id"],
+                }
+            else:
+                await _progress("Creating GitHub issue for Copilot agent...")
+                issue = await self._create_issue(
+                    session, owner, repo, bug,
+                    developer_notes=developer_notes,
+                )
+
             issue_number = issue["number"]
             process_log["copilot_issue"] = issue_number
             await _progress(
-                f"Issue #{issue_number} created: {issue['html_url']}"
+                f"Using issue #{issue_number}: {issue['html_url']}"
             )
 
             # 3. Build instructions
