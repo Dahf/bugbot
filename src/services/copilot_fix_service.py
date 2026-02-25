@@ -7,8 +7,12 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
-# Copilot agent bot username on GitHub
-COPILOT_BOT = "copilot-swe-agent[bot]"
+# Copilot agent bot usernames on GitHub (REST login values)
+COPILOT_PRIMARY_USER = "copilot-swe-agent[bot]"
+COPILOT_BOT_USERS = {
+    COPILOT_PRIMARY_USER,
+    "Copilot",
+}
 
 GITHUB_API = "https://api.github.com"
 
@@ -109,7 +113,7 @@ class CopilotFixService:
             f"/issues/{issue_number}/assignees"
         )
         payload = {
-            "assignees": [COPILOT_BOT],
+            "assignees": [COPILOT_PRIMARY_USER],
             "agent_assignment": {
                 "target_repo": f"{owner}/{repo}",
                 "base_branch": base_branch,
@@ -138,16 +142,21 @@ class CopilotFixService:
         Uses ``replaceActorsForAssignable`` with the special
         ``GraphQL-Features`` header required for Copilot assignment.
         """
-        # Resolve copilot-swe-agent[bot] node ID
-        user_url = f"{GITHUB_API}/users/{COPILOT_BOT}"
+        # Resolve copilot-swe-agent[bot] node ID (fallback to Copilot app login)
+        user_url = f"{GITHUB_API}/users/copilot-swe-agent[bot]"
         async with session.get(user_url) as resp:
             if resp.status != 200:
-                raise RuntimeError(
-                    f"Cannot resolve {COPILOT_BOT} node ID "
-                    f"(HTTP {resp.status}). Is Copilot enabled for "
-                    f"{owner}/{repo}?"
-                )
-            bot_node_id = (await resp.json())["node_id"]
+                fallback_url = f"{GITHUB_API}/users/Copilot"
+                async with session.get(fallback_url) as fallback_resp:
+                    if fallback_resp.status != 200:
+                        raise RuntimeError(
+                            "Cannot resolve Copilot bot node ID "
+                            f"(HTTP {resp.status}). Is Copilot enabled for "
+                            f"{owner}/{repo}?"
+                        )
+                    bot_node_id = (await fallback_resp.json())["node_id"]
+            else:
+                bot_node_id = (await resp.json())["node_id"]
 
         mutation = """
         mutation($assignableId: ID!, $actorIds: [ID!]!) {
@@ -212,7 +221,7 @@ class CopilotFixService:
             for pr in prs:
                 author = pr.get("user", {}).get("login", "")
                 head_ref = pr.get("head", {}).get("ref", "")
-                if author == COPILOT_BOT and head_ref.startswith("copilot/"):
+                if author in COPILOT_BOT_USERS and head_ref.startswith("copilot/"):
                     body = pr.get("body") or ""
                     ref = f"#{issue_number}"
                     if ref not in body and ref not in (pr.get("title") or ""):
