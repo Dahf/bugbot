@@ -384,6 +384,7 @@ def build_code_fix_pr_body(
     process_log: dict | None = None,
     changed_files: dict[str, str] | None = None,
     validation_passed: bool = False,
+    developer_notes: list[dict] | None = None,
 ) -> str:
     """Build the full PR body for an AI-generated code fix PR.
 
@@ -430,6 +431,15 @@ def build_code_fix_pr_body(
             f"- **Severity:** {ai_severity}",
             f"- **Suggested Fix:** {ai_fix}",
         ])
+
+    # Developer Notes section (Phase 6 traceability)
+    if developer_notes:
+        sections.extend(["", "### Developer Notes"])
+        for note in developer_notes:
+            author = note.get("author_name", "Unknown")
+            content = note.get("content", "")
+            timestamp = note.get("created_at", "")
+            sections.append(f"- **{author}** ({timestamp}): {content}")
 
     # Changes Made section
     if changed_files:

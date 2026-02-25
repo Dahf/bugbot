@@ -317,6 +317,7 @@ class CodeFixService:
         bug: dict,
         relevant_paths: list[str],
         prefetched_files: dict[str, str] | None = None,
+        developer_notes: list[dict] | None = None,
     ) -> str:
         """Build the system prompt for the code fix generation round.
 
@@ -332,6 +333,21 @@ class CodeFixService:
         root_cause = bug.get("ai_root_cause", "Not analyzed.")
         affected_area = bug.get("ai_affected_area", "Not identified.")
         suggested_fix = bug.get("ai_suggested_fix", "No suggestion.")
+
+        # Developer notes section
+        notes_section = ""
+        if developer_notes:
+            notes_lines = []
+            for note in developer_notes:
+                author = note.get("author_name", "Unknown")
+                content = note.get("content", "")
+                timestamp = note.get("created_at", "")
+                notes_lines.append(f"  [{author} at {timestamp}]: {content}")
+            notes_section = (
+                "\n"
+                "Developer Notes (from team members -- consider these alongside the AI analysis):\n"
+                + "\n".join(notes_lines)
+            )
 
         # Build file contents section
         files_section = ""
@@ -367,6 +383,7 @@ class CodeFixService:
             f"  Affected Area: {affected_area}\n"
             f"  Suggested Fix: {suggested_fix}\n"
             f"{files_section}\n"
+            f"{notes_section}\n"
             f"\n"
             f"Instructions:\n"
             f"1. The relevant source files are provided above -- study them.\n"
@@ -393,6 +410,7 @@ class CodeFixService:
         feedback: dict | None = None,
         relevant_paths: list[str] | None = None,
         prefetched_files: dict[str, str] | None = None,
+        developer_notes: list[dict] | None = None,
     ) -> dict:
         """Run a single round of agentic code generation via tool_runner.
 
@@ -410,7 +428,8 @@ class CodeFixService:
             # Round 1 or tool-error retry: send the full bug context so the
             # model has everything it needs to produce a complete fix.
             prompt = self._build_code_fix_prompt(
-                bug, relevant_paths or [], prefetched_files=prefetched_files
+                bug, relevant_paths or [], prefetched_files=prefetched_files,
+                developer_notes=developer_notes,
             )
             if is_tool_error_retry:
                 feedback_text = self._build_feedback_prompt(feedback)
@@ -702,6 +721,7 @@ class CodeFixService:
         bug: dict,
         relevant_paths: list[str],
         progress_callback=None,
+        developer_notes: list[dict] | None = None,
     ) -> dict:
         """Generate and validate a code fix using the agentic loop.
 
@@ -801,6 +821,7 @@ class CodeFixService:
                     feedback=feedback,
                     relevant_paths=relevant_paths,
                     prefetched_files=prefetched_files if include_prefetch else None,
+                    developer_notes=developer_notes,
                 )
 
                 # b. Handle tool-call validation errors (model omitted

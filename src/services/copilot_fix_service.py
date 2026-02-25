@@ -65,16 +65,17 @@ class CopilotFixService:
         owner: str,
         repo: str,
         bug: dict,
+        developer_notes: list[dict] | None = None,
     ) -> dict:
         """Create a GitHub issue from the bug report.
 
         Returns ``{"number": int, "html_url": str, "node_id": str}``.
         """
         title = (
-            f"[Bug #{bug.get('hash_id', '?')}] "
-            f"{bug.get('title', 'Bug fix')}"
+            f"[Bug #{bug.get('hash_id') or '?'}] "
+            f"{bug.get('title') or bug.get('description', 'Bug fix')}"
         )
-        body = self._build_issue_body(bug)
+        body = self._build_issue_body(bug, developer_notes=developer_notes)
 
         url = f"{GITHUB_API}/repos/{owner}/{repo}/issues"
         async with session.post(url, json={
@@ -200,33 +201,33 @@ class CopilotFixService:
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
 
-            url = (
-                f"{GITHUB_API}/repos/{owner}/{repo}/pulls"
-                f"?state=open&sort=created&direction=desc&per_page=10"
-            )
-            async with session.get(url) as resp:
-                resp.raise_for_status()
-                prs = await resp.json()
+            # Check open AND recently closed/merged PRs
+            for state in ("open", "closed"):
+                url = (
+                    f"{GITHUB_API}/repos/{owner}/{repo}/pulls"
+                    f"?state={state}&sort=created&direction=desc&per_page=10"
+                )
+                async with session.get(url) as resp:
+                    resp.raise_for_status()
+                    prs = await resp.json()
 
-            for pr in prs:
-                author = pr.get("user", {}).get("login", "")
-                head_ref = pr.get("head", {}).get("ref", "")
-                body = pr.get("body", "") or ""
-                # Match by author + branch prefix, and optionally issue ref
-                if (
-                    author == COPILOT_BOT
-                    and head_ref.startswith("copilot/")
-                    and (
-                        f"#{issue_number}" in body
-                        or f"#{issue_number}" in pr.get("title", "")
-                    )
-                ):
-                    return {
-                        "number": pr["number"],
-                        "html_url": pr["html_url"],
-                        "title": pr["title"],
-                        "branch": head_ref,
-                    }
+                for pr in prs:
+                    author = pr.get("user", {}).get("login", "")
+                    head_ref = pr.get("head", {}).get("ref", "")
+                    # Match by Copilot bot author + branch prefix.
+                    # Issue number check is optional (Copilot doesn't
+                    # always reference the issue in title/body).
+                    if author == COPILOT_BOT and head_ref.startswith("copilot/"):
+                        logger.info(
+                            "Found Copilot PR #%s (%s) for issue #%s",
+                            pr["number"], head_ref, issue_number,
+                        )
+                        return {
+                            "number": pr["number"],
+                            "html_url": pr["html_url"],
+                            "title": pr["title"],
+                            "branch": head_ref,
+                        }
 
             if progress_callback:
                 minutes, seconds = divmod(elapsed, 60)
@@ -244,35 +245,56 @@ class CopilotFixService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _build_issue_body(bug: dict) -> str:
+    def _build_issue_body(
+        bug: dict, developer_notes: list[dict] | None = None
+    ) -> str:
         """Build the GitHub issue body from bug data."""
-        return (
-            f"## Bug Report #{bug.get('hash_id', 'unknown')}\n\n"
-            f"**Title:** {bug.get('title', 'Unknown bug')}\n"
-            f"**Description:** {bug.get('description', 'No description')}\n"
-            f"**Severity:** {bug.get('severity', 'unknown')}\n\n"
+        parts = [
+            f"## Bug Report #{bug.get('hash_id') or 'unknown'}\n\n"
+            f"**Title:** {bug.get('title') or 'Unknown bug'}\n"
+            f"**Description:** {bug.get('description') or 'No description'}\n"
+            f"**Severity:** {bug.get('severity') or 'unknown'}\n\n"
             f"### Steps to Reproduce\n"
-            f"{bug.get('steps_to_reproduce', 'Not provided')}\n\n"
+            f"{bug.get('steps_to_reproduce') or 'Not provided'}\n\n"
             f"### AI Analysis\n"
-            f"- **Root Cause:** {bug.get('ai_root_cause', 'Not analyzed')}\n"
-            f"- **Affected Area:** {bug.get('ai_affected_area', 'Not identified')}\n"
-            f"- **Suggested Fix:** {bug.get('ai_suggested_fix', 'No suggestion')}\n\n"
-            f"---\n"
-            f"*Created by BugBot for Copilot coding agent*"
+            f"- **Root Cause:** {bug.get('ai_root_cause') or 'Not analyzed'}\n"
+            f"- **Affected Area:** {bug.get('ai_affected_area') or 'Not identified'}\n"
+            f"- **Suggested Fix:** {bug.get('ai_suggested_fix') or 'No suggestion'}\n",
+        ]
+
+        if developer_notes:
+            parts.append("\n### Developer Notes\n")
+            for note in developer_notes:
+                author = note.get("author_name", "Unknown")
+                content = note.get("content", "")
+                timestamp = note.get("created_at", "")
+                parts.append(f"- **{author}** ({timestamp}): {content}\n")
+
+        parts.append(
+            "\n---\n*Created by BugBot for Copilot coding agent*"
         )
+        return "".join(parts)
 
     @staticmethod
     def _build_custom_instructions(
-        bug: dict, relevant_paths: list[str]
+        bug: dict,
+        relevant_paths: list[str],
+        developer_notes: list[dict] | None = None,
     ) -> str:
         """Build custom instructions for the ``agent_assignment`` payload."""
         parts = [
             "Fix the bug described in this issue.",
-            f"Root cause: {bug.get('ai_root_cause', 'See issue body')}.",
-            f"Suggested fix: {bug.get('ai_suggested_fix', 'See issue body')}.",
+            f"Root cause: {bug.get('ai_root_cause') or 'See issue body'}.",
+            f"Suggested fix: {bug.get('ai_suggested_fix') or 'See issue body'}.",
         ]
         if relevant_paths:
             parts.append(f"Relevant files: {', '.join(relevant_paths)}.")
+        if developer_notes:
+            notes_summary = "; ".join(
+                f"{n.get('author_name', 'Unknown')}: {n.get('content', '')}"
+                for n in developer_notes
+            )
+            parts.append(f"Developer notes: {notes_summary}")
         parts.append("Keep changes minimal and focused on the reported bug.")
         return " ".join(parts)
 
@@ -289,6 +311,7 @@ class CopilotFixService:
         bug: dict,
         relevant_paths: list[str],
         progress_callback=None,
+        developer_notes: list[dict] | None = None,
     ) -> dict:
         """Delegate code fix to GitHub Copilot coding agent.
 
@@ -320,7 +343,10 @@ class CopilotFixService:
 
             # 2. Create issue
             await _progress("Creating GitHub issue for Copilot agent...")
-            issue = await self._create_issue(session, owner, repo, bug)
+            issue = await self._create_issue(
+                session, owner, repo, bug,
+                developer_notes=developer_notes,
+            )
             issue_number = issue["number"]
             process_log["copilot_issue"] = issue_number
             await _progress(
@@ -329,7 +355,7 @@ class CopilotFixService:
 
             # 3. Build instructions
             instructions = self._build_custom_instructions(
-                bug, relevant_paths
+                bug, relevant_paths, developer_notes=developer_notes,
             )
 
             # 4. Assign Copilot (REST, with GraphQL fallback)
