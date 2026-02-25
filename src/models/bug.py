@@ -281,7 +281,8 @@ class BugRepository:
         await self.db.execute(
             """
             UPDATE bugs
-            SET priority = ?,
+            SET title = COALESCE(?, title),
+                priority = ?,
                 priority_reasoning = ?,
                 ai_root_cause = ?,
                 ai_affected_area = ?,
@@ -295,6 +296,7 @@ class BugRepository:
             WHERE hash_id = ?
             """,
             (
+                analysis.get("title"),
                 analysis["priority"],
                 analysis["priority_reasoning"],
                 analysis["root_cause"],

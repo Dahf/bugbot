@@ -18,6 +18,7 @@ SYSTEM_PROMPT = """You are a senior software engineer triaging bug reports for a
 Analyze the bug report and respond with ONLY a JSON object (no markdown, no code fences) with these exact fields:
 
 {
+  "title": "A concise summary title for this bug, max 50 characters (e.g., 'Barcode scanner stops after 3 scans', 'Login fails on Android 14').",
   "root_cause": "A detailed paragraph explaining the likely root cause, your reasoning, and what is happening technically.",
   "affected_area": "The specific code area, module, or feature most likely affected (e.g., 'Authentication module', 'Camera capture flow').",
   "severity": "One of: critical, high, medium, low",
