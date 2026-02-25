@@ -335,10 +335,10 @@ class CopilotFixService:
         try:
             session = await self._get_session()
 
-            # 1. Get default branch
-            await _progress("Getting default branch info...")
-            default_branch, _ = await github_service.get_default_branch_sha(
-                owner, repo
+            # 1. Get target branch (version branch if exists, else default)
+            await _progress("Getting target branch info...")
+            default_branch, _ = await github_service.get_target_branch_sha(
+                owner, repo, bug.get("app_version")
             )
 
             # 2. Reuse existing issue or create a new one

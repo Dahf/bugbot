@@ -542,7 +542,9 @@ class BugActionButton(
                 # Copilot mode: skip branch creation (Copilot creates its own)
                 branch_name = None
                 default_branch, _ = (
-                    await bot.github_service.get_default_branch_sha(owner, repo)
+                    await bot.github_service.get_target_branch_sha(
+                        owner, repo, bug.get("app_version")
+                    )
                 )
             else:
                 # 5. Build branch name
@@ -550,9 +552,11 @@ class BugActionButton(
                     bug["hash_id"], display_title
                 )
 
-                # 6. Get default branch SHA
+                # 6. Get target branch SHA (version branch if exists, else default)
                 default_branch, base_sha = (
-                    await bot.github_service.get_default_branch_sha(owner, repo)
+                    await bot.github_service.get_target_branch_sha(
+                        owner, repo, bug.get("app_version")
+                    )
                 )
 
                 # 7. Create branch (GH-08: always a feature branch, never default)

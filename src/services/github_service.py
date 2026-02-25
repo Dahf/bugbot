@@ -143,6 +143,34 @@ class GitHubService:
         sha = ref_resp.parsed_data.object_.sha
         return (default_branch, sha)
 
+    async def get_target_branch_sha(
+        self, owner: str, repo: str, app_version: str | None
+    ) -> tuple[str, str]:
+        """Return ``(branch, sha)`` for the version branch if it exists,
+        otherwise fall back to the default branch.
+
+        Tries ``v{app_version}`` first (e.g. ``v1.0.1``).
+        """
+        if app_version:
+            version_branch = f"v{app_version}"
+            gh = await self.get_installation_client(owner, repo)
+            try:
+                ref_resp = await gh.rest.git.async_get_ref(
+                    owner, repo, f"heads/{version_branch}"
+                )
+                sha = ref_resp.parsed_data.object_.sha
+                logger.info(
+                    "Using version branch %s for %s/%s",
+                    version_branch, owner, repo,
+                )
+                return (version_branch, sha)
+            except Exception:
+                logger.info(
+                    "Version branch %s not found in %s/%s, using default",
+                    version_branch, owner, repo,
+                )
+        return await self.get_default_branch_sha(owner, repo)
+
     async def create_branch(
         self, owner: str, repo: str, branch_name: str, base_sha: str
     ) -> None:
