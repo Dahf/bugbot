@@ -462,6 +462,65 @@ class BugRepository:
             return _row_to_dict(row) if row else None
 
     # ------------------------------------------------------------------
+    # Clear fields (for /reset-buttons)
+    # ------------------------------------------------------------------
+
+    # Only columns that are safe to NULL out via /reset-buttons.
+    _CLEARABLE_FIELDS: dict[str, tuple[list[str], str | None]] = {
+        "issue": (
+            ["github_issue_number", "github_issue_url"],
+            "triaged",
+        ),
+        "fix": (
+            ["github_pr_number", "github_pr_url", "github_branch_name"],
+            "issue_created",
+        ),
+        "analysis": (
+            [
+                "ai_root_cause", "ai_affected_area", "ai_severity",
+                "ai_suggested_fix", "ai_tokens_used", "priority",
+                "priority_reasoning", "analysis_message_id",
+            ],
+            "received",
+        ),
+    }
+
+    async def clear_fields(
+        self, hash_id: str, field_group: str, changed_by: str
+    ) -> dict | None:
+        """NULL out a group of columns and roll back status.
+
+        *field_group* must be one of ``"issue"``, ``"fix"``, or
+        ``"analysis"``.  Returns the updated bug dict, or ``None`` if
+        *hash_id* not found.
+        """
+        columns, new_status = self._CLEARABLE_FIELDS[field_group]
+        bug = await self.get_bug(hash_id)
+        if bug is None:
+            return None
+
+        now = _utcnow_iso()
+        set_clause = ", ".join(f"{c} = NULL" for c in columns)
+        status_part = f", status = '{new_status}'" if new_status else ""
+        await self.db.execute(
+            f"UPDATE bugs SET {set_clause}{status_part}, updated_at = ? "
+            f"WHERE hash_id = ?",
+            (now, hash_id),
+        )
+        old_status = bug["status"]
+        if new_status and old_status != new_status:
+            await self.db.execute(
+                """
+                INSERT INTO status_history
+                    (bug_id, old_status, new_status, changed_by, changed_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (bug["id"], old_status, new_status, changed_by, now),
+            )
+        await self.db.commit()
+        return await self.get_bug(hash_id)
+
+    # ------------------------------------------------------------------
     # Store-then-process entry point
     # ------------------------------------------------------------------
 

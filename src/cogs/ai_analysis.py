@@ -385,6 +385,121 @@ class AIAnalysisCog(commands.Cog):
         )
         logger.info("Bug #%s recovered from thread by %s", hash_id, interaction.user)
 
+    # ------------------------------------------------------------------
+    # /reset-buttons: refresh buttons on an existing bug embed
+    # ------------------------------------------------------------------
+
+    @app_commands.command(
+        name="reset-buttons",
+        description="Refresh the buttons on a bug embed (optionally clear issue/fix/analysis)",
+    )
+    @app_commands.describe(
+        clear="Optionally clear a field group so its button becomes active again",
+    )
+    @app_commands.choices(
+        clear=[
+            app_commands.Choice(name="None -- just refresh", value="none"),
+            app_commands.Choice(name="Issue -- re-enable Create Issue", value="issue"),
+            app_commands.Choice(name="Fix -- re-enable Draft Fix", value="fix"),
+            app_commands.Choice(name="Analysis -- re-enable Analyze", value="analysis"),
+        ]
+    )
+    async def reset_buttons(
+        self,
+        interaction: discord.Interaction,
+        clear: app_commands.Choice[str] | None = None,
+    ) -> None:
+        """Re-derive button states from the DB and update the starter embed.
+
+        When *clear* is provided, the corresponding DB fields are NULLed
+        out first so the associated button becomes active again.
+        """
+        await interaction.response.defer(ephemeral=True)
+
+        # Must be in a thread
+        if not isinstance(interaction.channel, discord.Thread):
+            await interaction.followup.send(
+                "Run this command inside a bug thread.", ephemeral=True
+            )
+            return
+
+        thread = interaction.channel
+
+        # Get the starter (parent) message with the summary embed
+        try:
+            starter = await thread.parent.fetch_message(thread.id)
+        except discord.HTTPException:
+            await interaction.followup.send(
+                "Could not fetch the thread's starter message.",
+                ephemeral=True,
+            )
+            return
+
+        if not starter.embeds:
+            await interaction.followup.send(
+                "No embed found on the starter message.", ephemeral=True
+            )
+            return
+
+        # Parse hash_id from embed title
+        title_text = starter.embeds[0].title or ""
+        match = re.search(r"#([a-f0-9]{8})", title_text)
+        if not match:
+            await interaction.followup.send(
+                f"Could not parse bug hash from embed title: `{title_text}`",
+                ephemeral=True,
+            )
+            return
+
+        hash_id = match.group(1)
+
+        # Look up the bug in the DB
+        bug = await self.bot.bug_repo.get_bug(hash_id)
+        if bug is None:
+            await interaction.followup.send(
+                f"Bug **#{hash_id}** not found in the DB. "
+                "Run `/recover-bug` first to restore it.",
+                ephemeral=True,
+            )
+            return
+
+        # Clear fields if requested
+        clear_value = clear.value if clear else "none"
+        cleared_label = ""
+        if clear_value != "none":
+            bug = await self.bot.bug_repo.clear_fields(
+                hash_id, clear_value, str(interaction.user)
+            )
+            cleared_label = f" (cleared **{clear_value}**)"
+
+        # Rebuild embed and buttons from current DB state
+        from src.views.bug_buttons import build_bug_view, _derive_bug_flags
+
+        note_count = None
+        if hasattr(self.bot, "notes_repo"):
+            note_count = await self.bot.notes_repo.count_notes(bug["id"])
+
+        new_embed = build_summary_embed(bug, note_count=note_count)
+        flags = _derive_bug_flags(bug)
+        new_view = build_bug_view(hash_id, **flags)
+
+        try:
+            await starter.edit(embed=new_embed, view=new_view)
+        except discord.HTTPException as exc:
+            await interaction.followup.send(
+                f"Failed to update the embed: {exc}", ephemeral=True
+            )
+            return
+
+        await interaction.followup.send(
+            f"Buttons for **#{hash_id}** refreshed{cleared_label}.",
+            ephemeral=True,
+        )
+        logger.info(
+            "Buttons reset for bug #%s (clear=%s) by %s",
+            hash_id, clear_value, interaction.user,
+        )
+
 
 async def setup(bot: commands.Bot) -> None:
     """Entry point for discord.py extension loading."""
