@@ -3,6 +3,7 @@
 import json
 import logging
 
+import aiohttp
 from aiohttp import web
 from discord.ext import commands
 
@@ -32,10 +33,21 @@ class WebhookServer(commands.Cog):
 
     async def cog_load(self) -> None:
         """Start the aiohttp web server when the cog is loaded."""
+        self._http_session: aiohttp.ClientSession | None = None
+
         app = web.Application()
         app.router.add_post("/webhook/bug-report", self.handle_webhook)
         app.router.add_post("/webhook/github", self.handle_github_webhook)
         app.router.add_get("/health", self.health_check)
+        app.router.add_route(
+            "OPTIONS",
+            "/api/discord/channels/{channel_id}/messages",
+            self.handle_cors_preflight,
+        )
+        app.router.add_get(
+            "/api/discord/channels/{channel_id}/messages",
+            self.proxy_discord_messages,
+        )
 
         self.runner = web.AppRunner(app)
         await self.runner.setup()
@@ -48,6 +60,8 @@ class WebhookServer(commands.Cog):
 
     async def cog_unload(self) -> None:
         """Stop the web server and clean up when the cog is unloaded."""
+        if self._http_session is not None:
+            await self._http_session.close()
         if self.site is not None:
             await self.site.stop()
             logger.info("Webhook server TCPSite stopped")
@@ -189,6 +203,80 @@ class WebhookServer(commands.Cog):
                 "queue_size": self.bot.processing_queue.qsize(),
             }
         )
+
+    # ------------------------------------------------------------------
+    # Discord API proxy
+    # ------------------------------------------------------------------
+
+    def _cors_headers(self) -> dict[str, str]:
+        origin = self.bot.config.PROXY_ALLOWED_ORIGIN
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Authorization, X-API-Key",
+        }
+
+    async def handle_cors_preflight(
+        self, request: web.Request
+    ) -> web.Response:
+        """Respond to CORS preflight (OPTIONS) requests."""
+        return web.Response(status=204, headers=self._cors_headers())
+
+    async def proxy_discord_messages(
+        self, request: web.Request
+    ) -> web.Response:
+        """Proxy GET /api/discord/channels/{channel_id}/messages to Discord REST API.
+
+        Optional auth: set PROXY_API_KEY in .env, then pass it as
+        ``?api_key=<key>`` query parameter or ``X-API-Key`` header.
+        """
+        try:
+            # --- API key check (skip if PROXY_API_KEY is not configured) ---
+            expected_key = self.bot.config.PROXY_API_KEY
+            if expected_key:
+                provided_key = (
+                    request.query.get("api_key")
+                    or request.headers.get("X-API-Key", "")
+                )
+                if provided_key != expected_key:
+                    return web.json_response(
+                        {"error": "Unauthorized"},
+                        status=401,
+                        headers=self._cors_headers(),
+                    )
+
+            channel_id = request.match_info["channel_id"]
+            limit = request.query.get("limit", "100")
+
+            # Lazy-init a shared client session
+            if self._http_session is None or self._http_session.closed:
+                self._http_session = aiohttp.ClientSession()
+
+            discord_url = (
+                f"https://discord.com/api/v10/channels/{channel_id}/messages"
+            )
+            headers = {
+                "Authorization": f"Bot {self.bot.config.DISCORD_TOKEN}",
+            }
+
+            async with self._http_session.get(
+                discord_url, headers=headers, params={"limit": limit}
+            ) as resp:
+                body = await resp.read()
+                return web.Response(
+                    body=body,
+                    status=resp.status,
+                    content_type="application/json",
+                    headers=self._cors_headers(),
+                )
+
+        except Exception:
+            logger.exception("Error proxying Discord messages")
+            return web.json_response(
+                {"error": "Internal server error"},
+                status=500,
+                headers=self._cors_headers(),
+            )
 
 
 async def setup(bot: commands.Bot) -> None:

@@ -72,6 +72,12 @@ class Config:
             os.getenv("COPILOT_SESSION_TIMEOUT", "3600")
         )
 
+        # Discord API proxy -- optional API key to protect the proxy endpoint
+        self.PROXY_API_KEY: str | None = os.getenv("PROXY_API_KEY")
+        self.PROXY_ALLOWED_ORIGIN: str = os.getenv(
+            "PROXY_ALLOWED_ORIGIN", "*"
+        )
+
     @property
     def github_configured(self) -> bool:
         """Return True when all required GitHub App credentials are set."""
