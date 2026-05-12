@@ -20,6 +20,11 @@ class Config:
         self.BUG_CHANNEL_ID: int = int(self._require("BUG_CHANNEL_ID"))
         self.WEBHOOK_SECRET: str = self._require("WEBHOOK_SECRET")
 
+        chat_channel = os.getenv("CHAT_REPORT_CHANNEL_ID")
+        self.CHAT_REPORT_CHANNEL_ID: int = (
+            int(chat_channel) if chat_channel else self.BUG_CHANNEL_ID
+        )
+
         # Optional with defaults
         self.WEBHOOK_PORT: int = int(os.getenv("WEBHOOK_PORT", "8087"))
         self.WEBHOOK_HOST: str = os.getenv("WEBHOOK_HOST", "0.0.0.0")

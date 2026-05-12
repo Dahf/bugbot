@@ -2,8 +2,10 @@
 
 import json
 import logging
+from datetime import datetime, timezone
 
 import aiohttp
+import discord
 from aiohttp import web
 from discord.ext import commands
 
@@ -21,9 +23,10 @@ class WebhookServer(commands.Cog):
     """Runs an aiohttp web server that receives Supabase and GitHub webhook POSTs.
 
     Routes:
-        POST /webhook/bug-report -- validate HMAC, store payload, queue for processing
-        POST /webhook/github     -- validate signature, dispatch to GitHubIntegration cog
-        GET  /health             -- liveness check with queue depth
+        POST /webhook/bug-report  -- validate HMAC, store payload, queue for processing
+        POST /webhook/chat-report -- validate HMAC, post chat report embed to Discord
+        POST /webhook/github      -- validate signature, dispatch to GitHubIntegration cog
+        GET  /health              -- liveness check with queue depth
     """
 
     def __init__(self, bot: commands.Bot) -> None:
@@ -37,6 +40,7 @@ class WebhookServer(commands.Cog):
 
         app = web.Application()
         app.router.add_post("/webhook/bug-report", self.handle_webhook)
+        app.router.add_post("/webhook/chat-report", self.handle_chat_report)
         app.router.add_post("/webhook/github", self.handle_github_webhook)
         app.router.add_get("/health", self.health_check)
         app.router.add_route(
@@ -120,6 +124,100 @@ class WebhookServer(commands.Cog):
             return web.json_response(
                 {"error": "Internal server error"}, status=500
             )
+
+    async def handle_chat_report(self, request: web.Request) -> web.Response:
+        """Receive a chat report webhook, validate HMAC, post embed to Discord."""
+        try:
+            raw_body = await request.read()
+
+            signature = request.headers.get(
+                self.bot.config.SIGNATURE_HEADER_NAME, ""
+            )
+            if not signature or not validate_webhook_signature(
+                raw_body, signature, self.bot.config.WEBHOOK_SECRET
+            ):
+                logger.warning("Chat report rejected: invalid or missing signature")
+                return web.json_response(
+                    {"error": "Invalid signature"}, status=401
+                )
+
+            try:
+                payload = json.loads(raw_body)
+            except (json.JSONDecodeError, ValueError) as exc:
+                logger.warning("Chat report rejected: invalid JSON -- %s", exc)
+                return web.json_response(
+                    {"error": "Invalid JSON body"}, status=400
+                )
+
+            channel_id = self.bot.config.CHAT_REPORT_CHANNEL_ID
+            channel = self.bot.get_channel(channel_id)
+            if channel is None:
+                logger.error("Chat report channel %d not found", channel_id)
+                return web.json_response(
+                    {"error": "Channel not configured"}, status=500
+                )
+
+            embed = self._build_chat_report_embed(payload)
+            await channel.send(embed=embed)
+
+            logger.info(
+                "Posted chat report %s to channel %d",
+                payload.get("supabase_id"),
+                channel_id,
+            )
+            return web.json_response(
+                {"status": "received", "supabase_id": payload.get("supabase_id")},
+                status=200,
+            )
+
+        except Exception:
+            logger.exception("Unexpected error handling chat report")
+            return web.json_response(
+                {"error": "Internal server error"}, status=500
+            )
+
+    @staticmethod
+    def _build_chat_report_embed(payload: dict) -> discord.Embed:
+        """Build a Discord embed from a chat report payload."""
+        reason = payload.get("reason") or "No reason provided"
+        embed = discord.Embed(
+            title=f"Chat Report -- {reason}",
+            description=payload.get("note") or None,
+            color=discord.Color.orange(),
+        )
+
+        message_text = payload.get("message")
+        if message_text:
+            truncated = message_text if len(message_text) <= 1024 else message_text[:1021] + "..."
+            embed.add_field(name="Reported Message", value=truncated, inline=False)
+
+        reporter_name = payload.get("reporter_name") or "Unknown"
+        reporter_email = payload.get("reporter_email") or "n/a"
+        embed.add_field(
+            name="Reporter",
+            value=f"{reporter_name} ({reporter_email})",
+            inline=False,
+        )
+
+        if payload.get("user_id"):
+            embed.add_field(name="Reported User ID", value=str(payload["user_id"]), inline=True)
+        if payload.get("meal_id"):
+            embed.add_field(name="Meal ID", value=str(payload["meal_id"]), inline=True)
+        if payload.get("supabase_id"):
+            embed.add_field(name="Report ID", value=str(payload["supabase_id"]), inline=False)
+
+        created_at = payload.get("created_at")
+        if created_at:
+            try:
+                embed.timestamp = datetime.fromisoformat(
+                    created_at.replace("Z", "+00:00")
+                )
+            except (ValueError, AttributeError):
+                pass
+        else:
+            embed.timestamp = datetime.now(timezone.utc)
+
+        return embed
 
     async def handle_github_webhook(
         self, request: web.Request
