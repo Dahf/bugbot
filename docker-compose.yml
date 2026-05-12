@@ -30,5 +30,6 @@ services:
       - CODE_FIX_MODE=${CODE_FIX_MODE:-github}
       - PROXY_API_KEY=${PROXY_API_KEY}
       - PROXY_ALLOWED_ORIGIN=${PROXY_ALLOWED_ORIGIN:-*}
+      - CHAT_REPORT_CHANNEL_ID=${CHAT_REPORT_CHANNEL_ID}
 volumes:
   bot-data:
